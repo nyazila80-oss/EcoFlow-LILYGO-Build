@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 from pathlib import Path
 
-p=Path('src/powerstream_api.cpp')
-s=p.read_text(encoding='utf-8')
+p = Path('src/powerstream_api.cpp')
+s = p.read_text(encoding='utf-8')
 
-def rep(old,new,name):
+def rep(old, new, name):
     global s
-    if s.count(old)!=1:
+    if s.count(old) != 1:
         raise SystemExit(f'{name}: expected exactly one match, got {s.count(old)}')
-    s=s.replace(old,new)
+    s = s.replace(old, new)
 
 rep('static std::atomic<uint32_t> gTlsInternalFreePre{0}, gTlsInternalLargestPre{0};\nstatic std::atomic<uint32_t> gTlsInternalFreePost{0}, gTlsInternalLargestPost{0};', '''static std::atomic<uint32_t> gTlsInternalFreePre{0}, gTlsInternalLargestPre{0};
 static std::atomic<uint32_t> gTlsInternalFreePost{0}, gTlsInternalLargestPost{0};
@@ -22,7 +22,7 @@ static std::atomic<uint32_t> gTlsInternalHmacPreFree{0}, gTlsInternalHmacPreLarg
 static std::atomic<uint32_t> gTlsInternalHmacPostFree{0}, gTlsInternalHmacPostLargest{0};
 static std::atomic<uint32_t> gTlsInternalHeadersPostFree{0}, gTlsInternalHeadersPostLargest{0};
 static std::atomic<uint32_t> gTlsInternalGetPreFree{0}, gTlsInternalGetPreLargest{0};
-static std::atomic<uint32_t> gTlsInternalGetPostFree{0}, gTlsInternalGetPostLargest{0};''','diag atomics')
+static std::atomic<uint32_t> gTlsInternalGetPostFree{0}, gTlsInternalGetPostLargest{0};''', 'diag atomics')
 
 rep('static String maskKey(const String& s) {', '''static uint32_t credentialFingerprint(const String& value) {
   unsigned char out[32]{};
@@ -43,13 +43,13 @@ static void credentialProvenanceRefresh(bool verifyNvs) {
   gCredSecretNvsMatch.store(k==gSecret,std::memory_order_relaxed);
 }
 
-static String maskKey(const String& s) {''','fingerprint helper')
+static String maskKey(const String& s) {''', 'fingerprint helper')
 
-rep('  p.end();\n  psApiState.configured = gSn.length() && gAccess.length() && gSecret.length();\n}\n\nbool powerStreamApiSave', '  p.end();\n  psApiState.configured = gSn.length() && gAccess.length() && gSecret.length();\n  credentialProvenanceRefresh(true);\n}\n\nbool powerStreamApiSave','load provenance')
+rep('  p.end();\n  psApiState.configured = gSn.length() && gAccess.length() && gSecret.length();\n}\n\nbool powerStreamApiSave', '  p.end();\n  psApiState.configured = gSn.length() && gAccess.length() && gSecret.length();\n  credentialProvenanceRefresh(true);\n}\n\nbool powerStreamApiSave', 'load provenance')
 
-rep('  p.end();\n  psApiState.configured = gSn.length() && gAccess.length() && gSecret.length();\n  return true;\n}', '  p.end();\n  psApiState.configured = gSn.length() && gAccess.length() && gSecret.length();\n  credentialProvenanceRefresh(true);\n  return true;\n}','save provenance')
+rep('  p.end();\n  psApiState.configured = gSn.length() && gAccess.length() && gSecret.length();\n  return true;\n}', '  p.end();\n  psApiState.configured = gSn.length() && gAccess.length() && gSecret.length();\n  credentialProvenanceRefresh(true);\n  return true;\n}', 'save provenance')
 
-rep('  gAccess=""; gSecret=""; gSn="HW51ZEH49GB10829";\n  psApiState = PowerStreamApiState();', '  gAccess=""; gSecret=""; gSn="HW51ZEH49GB10829";\n  credentialProvenanceRefresh(true);\n  psApiState = PowerStreamApiState();','clear provenance')
+rep('  gAccess=""; gSecret=""; gSn="HW51ZEH49GB10829";\n  psApiState = PowerStreamApiState();', '  gAccess=""; gSecret=""; gSn="HW51ZEH49GB10829";\n  credentialProvenanceRefresh(true);\n  psApiState = PowerStreamApiState();', 'clear provenance')
 
 rep('  String signBase = flattened.length() ? flattened + "&" : "";\n  signBase += "accessKey="+gAccess+"&nonce="+nonce+"&timestamp="+timestamp;\n  String sig=hmac256(signBase,gSecret);\n  if(!sig.length()){err="HMAC-SHA256 fehlgeschlagen";return false;}\n  http.addHeader("accessKey",gAccess); http.addHeader("nonce",nonce);\n  http.addHeader("timestamp",timestamp); http.addHeader("sign",sig);', '''  String signBase = flattened.length() ? flattened + "&" : "";
   const String requestAccess=gAccess;
@@ -63,15 +63,15 @@ rep('  String signBase = flattened.length() ? flattened + "&" : "";\n  signBase 
   http.addHeader("accessKey",requestAccess); http.addHeader("nonce",nonce);
   http.addHeader("timestamp",timestamp); http.addHeader("sign",sig);
   gCredRequestAccessMatch.store(requestAccess==gAccess && credentialFingerprint(requestAccess)==gCredAccessFp.load(std::memory_order_relaxed),std::memory_order_relaxed);
-  tlsInternalSnap(gTlsInternalHeadersPostFree,gTlsInternalHeadersPostLargest);''','auth phase trace')
+  tlsInternalSnap(gTlsInternalHeadersPostFree,gTlsInternalHeadersPostLargest);''', 'auth phase trace')
 
-rep('  cloudDiagMark(CLOUD_DIAG_HTTP_GET,gCloudTraceJobId.load());\n  tlsMemSnap(gTlsHeapGetPre,gTlsLargestGetPre);', '  cloudDiagMark(CLOUD_DIAG_HTTP_GET,gCloudTraceJobId.load());\n  tlsMemSnap(gTlsHeapGetPre,gTlsLargestGetPre);\n  tlsInternalSnap(gTlsInternalGetPreFree,gTlsInternalGetPreLargest);','get pre internal')
+rep('  cloudDiagMark(CLOUD_DIAG_HTTP_GET,gCloudTraceJobId.load());\n  tlsMemSnap(gTlsHeapGetPre,gTlsLargestGetPre);', '  cloudDiagMark(CLOUD_DIAG_HTTP_GET,gCloudTraceJobId.load());\n  tlsMemSnap(gTlsHeapGetPre,gTlsLargestGetPre);\n  tlsInternalSnap(gTlsInternalGetPreFree,gTlsInternalGetPreLargest);', 'get pre internal')
 
-rep('  tlsMemSnap(gTlsHeapGetPost,gTlsLargestGetPost);\n  tlsInternalSnap(gTlsInternalFreePost,gTlsInternalLargestPost);', '  tlsMemSnap(gTlsHeapGetPost,gTlsLargestGetPost);\n  tlsInternalSnap(gTlsInternalGetPostFree,gTlsInternalGetPostLargest);\n  tlsInternalSnap(gTlsInternalFreePost,gTlsInternalLargestPost);','get post internal')
+rep('  tlsMemSnap(gTlsHeapGetPost,gTlsLargestGetPost);\n  tlsInternalSnap(gTlsInternalFreePost,gTlsInternalLargestPost);', '  tlsMemSnap(gTlsHeapGetPost,gTlsLargestGetPost);\n  tlsInternalSnap(gTlsInternalGetPostFree,gTlsInternalGetPostLargest);\n  tlsInternalSnap(gTlsInternalFreePost,gTlsInternalLargestPost);', 'get post internal')
 
-needle=',\\\"internal_free_pre\\\":"+String(gTlsInternalFreePre.load())+",\\\"internal_largest_pre\\\":"+String(gTlsInternalLargestPre.load())+",\\\"internal_free_post\\\":"+String(gTlsInternalFreePost.load())+",\\\"internal_largest_post\\\":"+String(gTlsInternalLargestPost.load())+'
-insert=',\\\"cred_access_len\\\":"+String(gCredAccessLen.load())+",\\\"cred_secret_len\\\":"+String(gCredSecretLen.load())+",\\\"cred_access_nvs_match\\\":"+(gCredAccessNvsMatch.load()?"true":"false")+",\\\"cred_secret_nvs_match\\\":"+(gCredSecretNvsMatch.load()?"true":"false")+",\\\"cred_access_fp\\\":\\\""+fpHex(gCredAccessFp.load())+"\\\",\\\"cred_secret_fp\\\":\\\""+fpHex(gCredSecretFp.load())+"\\\",\\\"cred_request_access_match\\\":"+(gCredRequestAccessMatch.load()?"true":"false")+",\\\"cred_request_secret_match\\\":"+(gCredRequestSecretMatch.load()?"true":"false")+",\\\"tls_internal_hmac_pre_free\\\":"+String(gTlsInternalHmacPreFree.load())+",\\\"tls_internal_hmac_pre_largest\\\":"+String(gTlsInternalHmacPreLargest.load())+",\\\"tls_internal_hmac_post_free\\\":"+String(gTlsInternalHmacPostFree.load())+",\\\"tls_internal_hmac_post_largest\\\":"+String(gTlsInternalHmacPostLargest.load())+",\\\"tls_internal_headers_post_free\\\":"+String(gTlsInternalHeadersPostFree.load())+",\\\"tls_internal_headers_post_largest\\\":"+String(gTlsInternalHeadersPostLargest.load())+",\\\"tls_internal_get_pre_free\\\":"+String(gTlsInternalGetPreFree.load())+",\\\"tls_internal_get_pre_largest\\\":"+String(gTlsInternalGetPreLargest.load())+",\\\"tls_internal_get_post_free\\\":"+String(gTlsInternalGetPostFree.load())+",\\\"tls_internal_get_post_largest\\\":"+String(gTlsInternalGetPostLargest.load())+needle
-rep(needle,insert,'status json')
+needle = ',\\\"internal_free_pre\\\":"+String(gTlsInternalFreePre.load())+",\\\"internal_largest_pre\\\":"+String(gTlsInternalLargestPre.load())+",\\\"internal_free_post\\\":"+String(gTlsInternalFreePost.load())+",\\\"internal_largest_post\\\":"+String(gTlsInternalLargestPost.load())+'
+insert = ',\\\"cred_access_len\\\":"+String(gCredAccessLen.load())+",\\\"cred_secret_len\\\":"+String(gCredSecretLen.load())+",\\\"cred_access_nvs_match\\\":"+(gCredAccessNvsMatch.load()?"true":"false")+",\\\"cred_secret_nvs_match\\\":"+(gCredSecretNvsMatch.load()?"true":"false")+",\\\"cred_access_fp\\\":\\\""+fpHex(gCredAccessFp.load())+"\\\",\\\"cred_secret_fp\\\":\\\""+fpHex(gCredSecretFp.load())+"\\\",\\\"cred_request_access_match\\\":"+(gCredRequestAccessMatch.load()?"true":"false")+",\\\"cred_request_secret_match\\\":"+(gCredRequestSecretMatch.load()?"true":"false")+",\\\"tls_internal_hmac_pre_free\\\":"+String(gTlsInternalHmacPreFree.load())+",\\\"tls_internal_hmac_pre_largest\\\":"+String(gTlsInternalHmacPreLargest.load())+",\\\"tls_internal_hmac_post_free\\\":"+String(gTlsInternalHmacPostFree.load())+",\\\"tls_internal_hmac_post_largest\\\":"+String(gTlsInternalHmacPostLargest.load())+",\\\"tls_internal_headers_post_free\\\":"+String(gTlsInternalHeadersPostFree.load())+",\\\"tls_internal_headers_post_largest\\\":"+String(gTlsInternalHeadersPostLargest.load())+",\\\"tls_internal_get_pre_free\\\":"+String(gTlsInternalGetPreFree.load())+",\\\"tls_internal_get_pre_largest\\\":"+String(gTlsInternalGetPreLargest.load())+",\\\"tls_internal_get_post_free\\\":"+String(gTlsInternalGetPostFree.load())+",\\\"tls_internal_get_post_largest\\\":"+String(gTlsInternalGetPostLargest.load())+' + needle
+rep(needle, insert, 'status json')
 
-p.write_text(s,encoding='utf-8')
+p.write_text(s, encoding='utf-8')
 print('15D runtime patch applied deterministically')
