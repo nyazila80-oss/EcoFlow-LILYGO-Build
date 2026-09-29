@@ -37,6 +37,24 @@ jobs:
           grep -F 'cred_request_secret_match' src/powerstream_api.cpp
           grep -F 'tls_internal_get_post_largest' src/powerstream_api.cpp
 
+      - name: 15D generated-source regression gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          s = Path('src/powerstream_api.cpp').read_text(encoding='utf-8')
+          anchor = 'String(gTlsInternalGetPostLargest.load())+'
+          pos = s.find(anchor)
+          if pos < 0:
+              raise SystemExit('missing tls_internal_get_post_largest expression')
+          tail = s[pos + len(anchor):pos + len(anchor) + 96]
+          print('generated join:', repr(tail))
+          if not tail.startswith('",\\"internal_free_pre\\":"+String(gTlsInternalFreePre.load())'):
+              raise SystemExit('malformed generated status JSON join before internal_free_pre')
+          print('15D generated-source regression gate PASS')
+          PY
+
       - name: Dependency and configuration gate
         shell: bash
         run: |
