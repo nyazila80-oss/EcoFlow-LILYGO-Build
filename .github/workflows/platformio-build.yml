@@ -37,22 +37,31 @@ jobs:
           grep -F 'cred_request_secret_match' src/powerstream_api.cpp
           grep -F 'tls_internal_get_post_largest' src/powerstream_api.cpp
 
-      - name: 15D generated-source regression gate
+      - name: 15E generated-source regression gate
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
           s = Path('src/powerstream_api.cpp').read_text(encoding='utf-8')
-          anchor = 'String(gTlsInternalGetPostLargest.load())+'
-          pos = s.find(anchor)
-          if pos < 0:
-              raise SystemExit('missing tls_internal_get_post_largest expression')
-          tail = s[pos + len(anchor):pos + len(anchor) + 96]
-          print('generated join:', repr(tail))
-          if not tail.startswith('",\\"internal_free_pre\\":"+String(gTlsInternalFreePre.load())'):
-              raise SystemExit('malformed generated status JSON join before internal_free_pre')
-          print('15D generated-source regression gate PASS')
+          required = [
+              'String(gTlsInternalGetPostLargest.load())+',
+              '\\"tls_failed_alloc_count\\":"+String(gTlsFailedAllocCount.load())',
+              '\\"tls_failed_alloc_size\\":"+String(gTlsFailedAllocSize.load())',
+              '\\"tls_failed_alloc_caps\\":"+String(gTlsFailedAllocCaps.load())',
+              '\\"tls_failed_alloc_task\\":"+String(gTlsFailedAllocTask.load())',
+              '\\"tls_alloc_hook_rc\\":"+String(gTlsAllocHookRc.load())',
+              '\\"internal_free_pre\\":"+String(gTlsInternalFreePre.load())',
+          ]
+          positions = []
+          for token in required:
+              pos = s.find(token)
+              if pos < 0:
+                  raise SystemExit(f'missing generated status token: {token}')
+              positions.append(pos)
+          if positions != sorted(positions):
+              raise SystemExit('15E generated status fields are not in expected order')
+          print('15E generated-source regression gate PASS')
           PY
 
       - name: Dependency and configuration gate
