@@ -50,14 +50,21 @@ rep('  if(method=="GET") httpCode=http.GET(); else if(method=="PUT") httpCode=ht
   } else if(method=="PUT") httpCode=http.PUT(body); else {err="Interner HTTP-Methodenfehler";http.end();return false;}''', 'wrap TLS allocation window')
 
 anchor=',\\"tls_internal_get_post_largest\\":"+String(gTlsInternalGetPostLargest.load())+'
-# Each inserted field must close the preceding String expression before opening the
-# next JSON key. Keeping these as adjacent C++ concatenations prevents the malformed
-# generated expression that caused Run #21 to fail compilation.
-extra=',\\"tls_failed_alloc_count\\":"+String(gTlsFailedAllocCount.load())+",\\"tls_failed_alloc_size\\":"+String(gTlsFailedAllocSize.load())+",\\"tls_failed_alloc_caps\\":"+String(gTlsFailedAllocCaps.load())+",\\"tls_failed_alloc_task\\":"+String(gTlsFailedAllocTask.load())+",\\"tls_alloc_hook_rc\\":"+String(gTlsAllocHookRc.load())+'
+# IMPORTANT: anchor deliberately ends after the C++ '+' operator. Therefore the
+# inserted fragment MUST begin with a C++ string-literal quote. The previous 15E
+# generator began directly with ,\\" and produced: load())+,\\"key... (invalid C++).
+# This fragment produces: load())+",\\"key\\":"+String(...)+ ...
+extra='",\\"tls_failed_alloc_count\\":"+String(gTlsFailedAllocCount.load())+",\\"tls_failed_alloc_size\\":"+String(gTlsFailedAllocSize.load())+",\\"tls_failed_alloc_caps\\":"+String(gTlsFailedAllocCaps.load())+",\\"tls_failed_alloc_task\\":"+String(gTlsFailedAllocTask.load())+",\\"tls_alloc_hook_rc\\":"+String(gTlsAllocHookRc.load())+'
 rep(anchor,anchor+extra,'status JSON 15E')
 
 p.write_text(s,encoding='utf-8')
 out=p.read_text(encoding='utf-8')
 for required in ('heap_caps_register_failed_alloc_callback','gTlsAllocWindow.store(true','tls_failed_alloc_size','tls_alloc_hook_rc'):
     if required not in out: raise SystemExit('15E postcondition missing: '+required)
-print('15E failed-allocation instrumentation applied deterministically')
+# Generator-level syntax invariant: no JSON key may follow a '+' without first
+# opening a C++ string literal. This catches the exact Run #22 failure before CI compile.
+bad='String(gTlsInternalGetPostLargest.load())+,\\"tls_failed_alloc_count'
+good='String(gTlsInternalGetPostLargest.load())+",\\"tls_failed_alloc_count\\":"+String(gTlsFailedAllocCount.load())'
+if bad in out: raise SystemExit('15E malformed C++ JSON concatenation survived generator')
+if good not in out: raise SystemExit('15E expected C++ JSON concatenation not generated')
+print('15E failed-allocation instrumentation applied deterministically; JSON boundary invariant PASS')
