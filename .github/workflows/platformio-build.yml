@@ -41,6 +41,30 @@ jobs:
           grep -F 'board_build.filesystem = spiffs' platformio.ini
           grep -F 'board_build.partitions = partitions.csv' platformio.ini
 
+      - name: SPIFFS firmware-version provenance gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s data/fs_version.txt
+          FW_VERSION="$(python - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path('include/config.h').read_text(encoding='utf-8')
+          m = re.search(r'^\s*#define\s+FW_VERSION\s+"([^"]+)"\s*$', text, re.M)
+          if not m:
+              raise SystemExit('FW_VERSION not found uniquely in include/config.h')
+          print(m.group(1))
+          PY
+          )"
+          FS_VERSION="$(tr -d '\r\n' < data/fs_version.txt)"
+          echo "Firmware version: $FW_VERSION"
+          echo "SPIFFS manifest: $FS_VERSION"
+          test -n "$FS_VERSION"
+          if [ "$FW_VERSION" != "$FS_VERSION" ]; then
+            echo "ERROR: data/fs_version.txt does not match FW_VERSION. Refusing to build a mismatched SPIFFS image."
+            exit 1
+          fi
+
       - name: Repository secret hygiene gate
         shell: bash
         run: |
@@ -94,12 +118,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          FW_VERSION="$(python - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path('include/config.h').read_text(encoding='utf-8')
+          m = re.search(r'^\s*#define\s+FW_VERSION\s+"([^"]+)"\s*$', text, re.M)
+          if not m:
+              raise SystemExit('FW_VERSION not found uniquely in include/config.h')
+          print(m.group(1))
+          PY
+          )"
           for env in lilygo_tcan485 lilygo_tcan485_ota; do
             for f in firmware.bin spiffs.bin bootloader.bin partitions.bin; do
               test -s ".pio/build/$env/$f"
               echo "$env $f: $(stat -c%s ".pio/build/$env/$f") bytes"
             done
+            # Binary-level provenance: prove the built SPIFFS image itself contains
+            # both the manifest filename and the exact firmware version expected by runtime.
+            grep -aFq 'fs_version.txt' ".pio/build/$env/spiffs.bin" || {
+              echo "ERROR: $env/spiffs.bin does not contain fs_version.txt"; exit 1; }
+            grep -aFq "$FW_VERSION" ".pio/build/$env/spiffs.bin" || {
+              echo "ERROR: $env/spiffs.bin does not contain FW_VERSION=$FW_VERSION"; exit 1; }
           done
+          cmp -s .pio/build/lilygo_tcan485/spiffs.bin .pio/build/lilygo_tcan485_ota/spiffs.bin || {
+            echo 'ERROR: USB and OTA SPIFFS images differ.'; exit 1; }
+          echo 'SPIFFS provenance OK: manifest present, FW_VERSION embedded, USB/OTA images identical.'
 
       - name: Collect build artifacts
         if: success()
@@ -113,7 +156,7 @@ jobs:
             cp ".pio/build/$env/bootloader.bin" "artifacts/$env/"
             cp ".pio/build/$env/partitions.bin" "artifacts/$env/"
           done
-          cp platformio.ini partitions.csv artifacts/
+          cp platformio.ini partitions.csv data/fs_version.txt artifacts/
           cat > artifacts/FLASH_USB.txt <<'EOF'
           EcoFlow LILYGO T-CAN485 - complete USB flash package
 
@@ -127,6 +170,8 @@ jobs:
           IMPORTANT:
           - Use the four files from artifacts/lilygo_tcan485/ together.
           - Do not mix files from different GitHub runs or environments.
+          - fs_version.txt is included as provenance evidence; the CI gate verifies
+            that the built spiffs.bin contains the same FW_VERSION as firmware source.
           - A full-chip erase also removes NVS/settings. Do not erase unless intentionally doing a factory-clean flash.
           EOF
 
