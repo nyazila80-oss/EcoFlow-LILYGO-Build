@@ -18,6 +18,14 @@ checks = []
 def check(name, cond, detail):
     checks.append((name, bool(cond), detail))
 
+# Strip C/C++ comments before executable-call security checks. The firmware
+# intentionally documents that setInsecure() must never be used; matching that
+# comment as executable code caused the original 15D false positive.
+def strip_cpp_comments(text):
+    return re.sub(r'//[^\n]*|/\*.*?\*/', '', text, flags=re.S)
+
+API_CODE = strip_cpp_comments(API)
+
 # Browser/API ingress.
 check("web reads access POST field", 'hasParam("access",true)' in WEB and 'getParam("access",true)' in WEB,
       "POST access field is read")
@@ -51,8 +59,8 @@ check("config endpoint remains masked", 'powerStreamApiAccessMasked()' in WEB,
       "normal config GET uses masked AccessKey")
 check("no obvious secret JSON field", not re.search(r'\\?"secret(?:_key)?\\?"\s*:', WEB, re.I),
       "web source contains no plaintext secret JSON member")
-check("TLS insecure fallback absent", "setInsecure(" not in API,
-      "TLS peer verification cannot silently fall back to insecure mode")
+check("TLS insecure fallback absent", not re.search(r'\bsetInsecure\s*\(', API_CODE),
+      "no executable setInsecure() call; comments are ignored")
 
 failed = [x for x in checks if not x[1]]
 for name, ok, detail in checks:
