@@ -29,6 +29,14 @@ jobs:
       - name: PlatformIO version
         run: pio --version
 
+      - name: Apply 15D runtime diagnostic patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/apply_tls15d_runtime_patch.py
+          grep -F 'cred_request_secret_match' src/powerstream_api.cpp
+          grep -F 'tls_internal_get_post_largest' src/powerstream_api.cpp
+
       - name: Dependency and configuration gate
         shell: bash
         run: |
@@ -133,8 +141,6 @@ jobs:
               test -s ".pio/build/$env/$f"
               echo "$env $f: $(stat -c%s ".pio/build/$env/$f") bytes"
             done
-            # Binary-level provenance: prove the built SPIFFS image itself contains
-            # both the manifest filename and the exact firmware version expected by runtime.
             grep -aFq 'fs_version.txt' ".pio/build/$env/spiffs.bin" || {
               echo "ERROR: $env/spiffs.bin does not contain fs_version.txt"; exit 1; }
             grep -aFq "$FW_VERSION" ".pio/build/$env/spiffs.bin" || {
@@ -170,8 +176,7 @@ jobs:
           IMPORTANT:
           - Use the four files from artifacts/lilygo_tcan485/ together.
           - Do not mix files from different GitHub runs or environments.
-          - fs_version.txt is included as provenance evidence; the CI gate verifies
-            that the built spiffs.bin contains the same FW_VERSION as firmware source.
+          - fs_version.txt is included as provenance evidence.
           - A full-chip erase also removes NVS/settings. Do not erase unless intentionally doing a factory-clean flash.
           EOF
 
