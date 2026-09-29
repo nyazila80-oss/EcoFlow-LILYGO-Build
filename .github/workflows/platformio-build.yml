@@ -15,6 +15,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -26,6 +28,52 @@ jobs:
 
       - name: PlatformIO version
         run: pio --version
+
+      - name: Dependency and configuration gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'platform = espressif32@7.1.3' platformio.ini
+          grep -F 'esp32async/ESPAsyncWebServer @ 3.12.1' platformio.ini
+          grep -F 'ESP32Async/AsyncTCP @ 3.5.0' platformio.ini
+          grep -F 'knolleary/PubSubClient @ 2.8.0' platformio.ini
+          grep -F 'h2zero/NimBLE-Arduino @ 2.5.1' platformio.ini
+          grep -F 'board_build.filesystem = spiffs' platformio.ini
+          grep -F 'board_build.partitions = partitions.csv' platformio.ini
+
+      - name: Repository secret hygiene gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -n -I -E '(AccessKey|SecretKey)[[:space:]]*[:=][[:space:]]*[A-Za-z0-9_+/=-]{12,}' -- ':!*.md' ':!*.txt'; then
+            echo 'Potential EcoFlow credential material found in tracked source files.'
+            exit 1
+          fi
+          echo 'No obvious EcoFlow AccessKey/SecretKey assignment found in tracked source files.'
+
+      - name: Python syntax gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' pyfiles < <(find . -type f -name '*.py' -not -path './.pio/*' -not -path './.git/*' -print0)
+          if [ ${#pyfiles[@]} -gt 0 ]; then
+            python -m py_compile "${pyfiles[@]}"
+          fi
+
+      - name: Host regression simulations
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t sims < <(find . -maxdepth 2 -type f \( -name 'host_sim*.py' -o -name '*regression*.py' -o -name '*audit*.py' \) -not -path './.pio/*' -not -path './.git/*' | sort)
+          if [ ${#sims[@]} -eq 0 ]; then
+            echo 'No host regression simulation scripts found; gate is informational.'
+            exit 0
+          fi
+          printf 'Running %s host simulation/regression scripts\n' "${#sims[@]}"
+          for sim in "${sims[@]}"; do
+            echo "===== $sim ====="
+            python "$sim"
+          done
 
       - name: Clean
         run: pio run -t clean
@@ -42,6 +90,17 @@ jobs:
       - name: Build SPIFFS - OTA environment
         run: pio run -e lilygo_tcan485_ota -t buildfs
 
+      - name: Release artifact gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          for env in lilygo_tcan485 lilygo_tcan485_ota; do
+            test -s ".pio/build/$env/firmware.bin"
+            test -s ".pio/build/$env/spiffs.bin"
+            echo "$env firmware: $(stat -c%s ".pio/build/$env/firmware.bin") bytes"
+            echo "$env SPIFFS:   $(stat -c%s ".pio/build/$env/spiffs.bin") bytes"
+          done
+
       - name: Collect build artifacts
         if: success()
         run: |
@@ -50,6 +109,7 @@ jobs:
           cp .pio/build/lilygo_tcan485/spiffs.bin artifacts/lilygo_tcan485/
           cp .pio/build/lilygo_tcan485_ota/firmware.bin artifacts/lilygo_tcan485_ota/
           cp .pio/build/lilygo_tcan485_ota/spiffs.bin artifacts/lilygo_tcan485_ota/
+          cp platformio.ini partitions.csv artifacts/
 
       - name: Upload build artifacts
         if: success()
