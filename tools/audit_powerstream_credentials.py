@@ -2,8 +2,9 @@
 """15D static audit: prove the PowerStream credential provenance chain.
 
 This audit intentionally never reads or prints real credentials. It verifies the
-source-level path WebUI POST -> powerStreamApiSave -> NVS -> RAM -> HMAC/header,
-and fails closed if a plaintext secret exposure is introduced.
+source-level path WebUI POST -> powerStreamApiSave -> NVS -> RAM -> request
+snapshot -> signature/header, and fails closed if a plaintext secret exposure is
+introduced.
 """
 from pathlib import Path
 import re
@@ -44,13 +45,19 @@ check("blank access preserves stored value", 'if (a.length()) gAccess=a;' in API
 check("blank secret preserves stored value", 'if (k.length()) gSecret=k;' in API,
       "empty SecretKey field does not erase existing key")
 
-# Actual request use.
-check("request header uses gAccess", 'addHeader("accessKey",gAccess)' in API,
-      "RAM AccessKey becomes EcoFlow accessKey header")
+# Actual request use. 15D deliberately snapshots the AccessKey once per request
+# so the same immutable value is used by both signature base and HTTP header.
+request_access_snapshot = 'const String requestAccess=gAccess;' in API
+check("request snapshots gAccess", request_access_snapshot,
+      "request-local AccessKey snapshot originates directly from RAM gAccess")
+check("request header uses AccessKey snapshot", request_access_snapshot and 'addHeader("accessKey",requestAccess)' in API,
+      "same request-local AccessKey becomes EcoFlow accessKey header")
+check("signature base uses AccessKey snapshot", request_access_snapshot and '"accessKey="+requestAccess' in API,
+      "same request-local AccessKey is part of signature base")
+check("request snapshot provenance is checked", 'requestAccess==gAccess' in API and 'credentialFingerprint(requestAccess)==gCredAccessFp.load' in API,
+      "runtime diagnostic verifies request snapshot still matches RAM/fingerprint")
 check("HMAC uses gSecret", 'hmac256(signBase,gSecret)' in API,
       "RAM SecretKey is the HMAC-SHA256 key")
-check("signature base includes gAccess", '"accessKey="+gAccess' in API,
-      "same RAM AccessKey is part of signature base")
 
 # Security regression guards: do not expose plaintext secret through public API.
 check("no public secret getter", "powerStreamApiSecret" not in HDR,
