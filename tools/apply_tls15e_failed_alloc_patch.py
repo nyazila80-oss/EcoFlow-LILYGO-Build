@@ -50,6 +50,9 @@ rep('  if(method=="GET") httpCode=http.GET(); else if(method=="PUT") httpCode=ht
   } else if(method=="PUT") httpCode=http.PUT(body); else {err="Interner HTTP-Methodenfehler";http.end();return false;}''', 'wrap TLS allocation window')
 
 anchor=',\\"tls_internal_get_post_largest\\":"+String(gTlsInternalGetPostLargest.load())+'
+# Each inserted field must close the preceding String expression before opening the
+# next JSON key. Keeping these as adjacent C++ concatenations prevents the malformed
+# generated expression that caused Run #21 to fail compilation.
 extra=',\\"tls_failed_alloc_count\\":"+String(gTlsFailedAllocCount.load())+",\\"tls_failed_alloc_size\\":"+String(gTlsFailedAllocSize.load())+",\\"tls_failed_alloc_caps\\":"+String(gTlsFailedAllocCaps.load())+",\\"tls_failed_alloc_task\\":"+String(gTlsFailedAllocTask.load())+",\\"tls_alloc_hook_rc\\":"+String(gTlsAllocHookRc.load())+'
 rep(anchor,anchor+extra,'status JSON 15E')
 
