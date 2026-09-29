@@ -5,10 +5,14 @@ web=(root/'src/web.cpp').read_text(); ota=(root/'src/ota.cpp').read_text(); html
 checks={}
 checks['version']=bool(re.search(r'#define FW_VERSION "2\.4\.5\.',cfg))
 checks['password_nvs']='ap.putString("password"' in web and 'length() < 16' in web
+# 9.36.4+ controlled A/B diagnostic mode: local HTTP WebUI/API and its
+# WebSockets deliberately run without Basic Auth. This is intentional and must
+# not be mistaken for a regression. OTA remains protected by the persistent
+# remoteauth secret, and mutating requests retain the same-origin gate.
 auth_block=web.split('bool remoteAuthRequest(',1)[1].split('bool remoteOtaAuthRequest(',1)[0]
-checks['http_auth_api']='->authenticate(' in auth_block
-checks['ws_auth']=all(f'{x}.setAuthentication(remoteAuthUser(), remoteAuthPassword())' in web for x in ['wsLog','wsBms','wsDebug'])
-checks['can_stats_auth']='server.on("/can_stats"' in web and 'if(!remoteAuthRequest(r)) return;\n    twai_status_info_t' in web
+checks['http_local_no_basic_auth_ab']='->authenticate(' not in auth_block and 'return true;' in auth_block
+checks['ws_local_no_basic_auth_ab']=all(f'{x}.setAuthentication(remoteAuthUser(), remoteAuthPassword())' not in web for x in ['wsLog','wsBms','wsDebug'])
+checks['can_stats_local_ab']='server.on("/can_stats"' in web and 'if(!remoteAuthRequest(r)) return;\n    twai_status_info_t' in web
 checks['ota_http_auth']='remoteOtaAuthRequest(request)' in ota and ota.count('request->authenticate(remoteAuthUser(), remoteAuthPassword())')>=2
 checks['arduino_ota_auth']='ArduinoOTA.setPassword(remoteAuthPassword())' in ota
 checks['mutation_origin']='if (!r->hasHeader("Origin")) return false' in web and web.count('remoteMutationAllowed')>=10
@@ -20,13 +24,15 @@ allowed={'bal_delta','bal_start','soc100','soc0','rcv','float','smart_sleep'}
 keys=set(re.findall(r'\{"([a-z0-9_]+)",\d+,', setting_block))
 checks['remote_write_exact_allowlist']=(keys==allowed)
 checks['remote_critical_keys_absent']=not any(k in keys for k in {'uvp','uvpr','ovp','ovpr','poweroff','charge_a','discharge_a','cell_count','capacity','precharge','scp_delay','scp_release','bal_max_a'})
-# model auth/origin/write lifecycle
+# Model the remaining security boundary in A/B mode: local admission is open by
+# design, but mutations still require a valid same-origin request. OTA auth is
+# covered independently by the static checks above.
 N=2_000_000; accepted_bad=0; false_verified=0; verified=0; rejected=0
 rng=random.Random(2001)
 for _ in range(N):
-    auth=rng.random()<0.82; origin=rng.random()<0.88; mutation=rng.random()<0.35
-    allowed=auth and (origin if mutation else True)
-    if (not auth or (mutation and not origin)) and allowed: accepted_bad+=1
+    origin=rng.random()<0.88; mutation=rng.random()<0.35
+    allowed=(origin if mutation else True)
+    if mutation and not origin and allowed: accepted_bad+=1
     if not allowed: rejected+=1; continue
     if mutation and rng.random()<0.2: # BMS write
         last_verified=False
@@ -34,6 +40,6 @@ for _ in range(N):
         readback=ack and rng.random()<0.98
         if readback: last_verified=True; verified+=1
         if last_verified and not readback: false_verified+=1
-result={'events':N,'rejected_unauth_or_bad_origin':rejected,'verified_writes':verified,'accepted_bad':accepted_bad,'false_verified':false_verified,'checks':checks,'pass':all(checks.values()) and accepted_bad==0 and false_verified==0}
+result={'events':N,'ab_mode':'local_http_ws_no_basic_auth__ota_auth_preserved','rejected_bad_origin_mutations':rejected,'verified_writes':verified,'accepted_bad_origin_mutations':accepted_bad,'false_verified':false_verified,'checks':checks,'pass':all(checks.values()) and accepted_bad==0 and false_verified==0}
 print(json.dumps(result,indent=2)); (root/'HOST_SIM_V15_REMOTE_SECURITY_RESULTS.json').write_text(json.dumps(result,indent=2))
 raise SystemExit(0 if result['pass'] else 1)
