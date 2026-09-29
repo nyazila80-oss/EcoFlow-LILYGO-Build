@@ -37,14 +37,17 @@ static void ensureTlsAllocHook(){
 
 rep('void powerStreamApiLoad() {\n  ApiLock lk(pdMS_TO_TICKS(1000)); if(!lk.held) return;', 'void powerStreamApiLoad() {\n  ensureTlsAllocHook();\n  ApiLock lk(pdMS_TO_TICKS(1000)); if(!lk.held) return;', 'register hook')
 
-rep('  int httpCode=http.GET();\n  tlsMemSnap(gTlsHeapGetPost,gTlsLargestGetPost);', '''  gTlsFailedAllocCount.store(0,std::memory_order_relaxed);
-  gTlsFailedAllocSize.store(0,std::memory_order_relaxed);
-  gTlsFailedAllocCaps.store(0,std::memory_order_relaxed);
-  gTlsFailedAllocTask.store(0,std::memory_order_relaxed);
-  gTlsAllocWindow.store(true,std::memory_order_release);
-  int httpCode=http.GET();
-  gTlsAllocWindow.store(false,std::memory_order_release);
-  tlsMemSnap(gTlsHeapGetPost,gTlsLargestGetPost);''', 'wrap TLS allocation window')
+# 15D keeps the GET on the compact method-dispatch line. Wrap only the GET call;
+# preserve the PUT/error branches byte-for-byte so 15E remains diagnostic-only.
+rep('  if(method=="GET") httpCode=http.GET(); else if(method=="PUT") httpCode=http.PUT(body); else {err="Interner HTTP-Methodenfehler";http.end();return false;}', '''  if(method=="GET") {
+    gTlsFailedAllocCount.store(0,std::memory_order_relaxed);
+    gTlsFailedAllocSize.store(0,std::memory_order_relaxed);
+    gTlsFailedAllocCaps.store(0,std::memory_order_relaxed);
+    gTlsFailedAllocTask.store(0,std::memory_order_relaxed);
+    gTlsAllocWindow.store(true,std::memory_order_release);
+    httpCode=http.GET();
+    gTlsAllocWindow.store(false,std::memory_order_release);
+  } else if(method=="PUT") httpCode=http.PUT(body); else {err="Interner HTTP-Methodenfehler";http.end();return false;}''', 'wrap TLS allocation window')
 
 anchor=',\\"tls_internal_get_post_largest\\":"+String(gTlsInternalGetPostLargest.load())+'
 extra=',\\"tls_failed_alloc_count\\":"+String(gTlsFailedAllocCount.load())+",\\"tls_failed_alloc_size\\":"+String(gTlsFailedAllocSize.load())+",\\"tls_failed_alloc_caps\\":"+String(gTlsFailedAllocCaps.load())+",\\"tls_failed_alloc_task\\":"+String(gTlsFailedAllocTask.load())+",\\"tls_alloc_hook_rc\\":"+String(gTlsAllocHookRc.load())+'
