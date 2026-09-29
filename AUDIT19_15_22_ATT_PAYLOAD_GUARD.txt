@@ -1,0 +1,14 @@
+AUDIT19.15.22 ATT-PAYLOAD-GUARD
+
+Deep audit follow-up to 19.15.21.
+- BLE remains enabled.
+- MTU remains 247.
+- Bridge packet capacity corrected to ATT payload limit MTU-3 = 244 bytes.
+- No battery protection values, JK write protocol, PowerStream CAN payloads, WiFi/WebUI, RS485 or MQTT behavior changed.
+- Existing callback/session/race/heap/stack diagnostics remain active.
+
+Validation performed in this environment:
+- repeated randomized queue/session model tests
+- bounded-buffer/static scans
+- archive integrity check
+- PlatformIO build could not be run because PlatformIO is unavailable and package installation has no network access.

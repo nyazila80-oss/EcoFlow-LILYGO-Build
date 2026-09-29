@@ -1,0 +1,11 @@
+AUDIT20.4.4 RX-DECOUPLED + LOW-SOC-GUARD
+- RX raw logging moved out of EcoFlow decoder into independent 48-entry best-effort log queue/task.
+- Decoder queue always admits only 10014001/10114001/10214001, independent of RX Logging.
+- Raw CB forensic tap remains before decoder prefilter.
+- Log overload increments rx_log_drop; it does not evict decoder frames.
+- Low-SOC guard thresholds are user configurable and persistent (default stop 10%, resume 12%).
+- Low-SOC hysteresis model: 1,020,100 exhaustive checks (see audit output); zero violations.
+- Guard is intentionally MONITOR ONLY until PowerStream DCL mapping is verified. It does NOT toggle JK MOS and does NOT invent CAN DCL bytes.
+- SOH/SOC are read from validated JK telemetry and shown in Remote UI.
+- remote.html JavaScript syntax checked with node --check.
+- No PlatformIO/ESP32 build or hardware test performed in this environment.

@@ -1,0 +1,7 @@
+AUDIT20.4.5.4 WIFI-RECOVERY-HARDENED
+- staged WiFi recovery: 10s soft reconnect, 30s full STA restart, 120s AP+STA recovery
+- recovery AP removed automatically after STA reconnect
+- no NVS/credential deletion
+- wrap-safe elapsed-time comparisons
+- diagnostic counters/logging for reconnect/full restart/recovery AP
+- host state-machine regression included: host_sim_v29_wifi_recovery.py

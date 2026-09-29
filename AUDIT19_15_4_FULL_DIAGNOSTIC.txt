@@ -1,0 +1,8 @@
+AUDIT19.15.4 FULL-DIAGNOSTIC
+
+- BLE proxy re-enabled; full real-world stack is exercised.
+- Retains 19.15.3 bounded RS485 RX/stale-drain guards.
+- Retains independent Core-1 heartbeat with heap integrity, WiFi, BMS and CAN counters.
+- Retains 19.15.2 BLE heap/largest-block guards and synchronous direct connect.
+- No BLE scanning.
+- No battery protection/write semantics changed.

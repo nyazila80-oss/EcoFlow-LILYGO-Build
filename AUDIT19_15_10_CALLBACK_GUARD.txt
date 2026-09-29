@@ -1,0 +1,9 @@
+AUDIT19.15.10 CALLBACK-GUARD
+- Keeps BLE, WiFi/WebUI, RS485 and CAN enabled.
+- Keeps synchronous direct JK connect from 19.15.9.
+- BLE host callbacks no longer perform remote writeValue() or local notify() directly.
+- Callbacks copy at most one 247-byte ATT packet per direction into fixed static buffers.
+- Main loop bridgePump() performs actual forwarding.
+- Busy/oversize packets are dropped and counted instead of allocating memory or nesting BLE operations.
+- No battery protection values or PowerStream CAN payloads changed.
+- Static/source review only; not compiled or hardware-tested in this environment.

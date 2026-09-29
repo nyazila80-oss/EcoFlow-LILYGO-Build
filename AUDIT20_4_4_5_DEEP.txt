@@ -1,0 +1,25 @@
+AUDIT20.4.4.5 DYNAMIC-SNAPSHOT
+- Hardened batteryMaster and batt runtime gates with atomic mirrors.
+- Added coherent 32-bit seqlock snapshot for SOC/voltage/temp/upper/lower/runtime CAN payload values.
+- Added atomic power snapshot for input/output watts used by CAN payload preparation.
+- Removed direct BMS getter reads from EcoFlow CAN payload preparation; BMS task publishes min/max cell, balance capacity and full-charge voltage snapshots.
+- Derived BMS snapshot uses 32-bit atomic seqlock.
+- Avoided std::atomic<uint64_t> to reduce ESP32/Xtensa link/lock-free risk.
+- Existing RX logging decoupling, RAW CB forensic recorder, low-SOC monitor/failsafe retained.
+- Low-SOC remains MONITOR_ONLY_UNTIL_DCL_MAPPING_VERIFIED; no JK MOS write and no invented DCL command.
+Tests:
+  dynamic snapshot/seqlock 3,000,000 generations PASS, 0 modeled violations
+  batteryMaster/batt atomic gates 1,000,000 transitions PASS
+  config/NVS 4,000,041 PASS
+  low-SOC atomic/failsafe 6,000,000 PASS
+  race/queue 2,500,012 PASS
+  RX/LSG/logger 3,020,108 PASS
+  RAW-CB forensic 1,520,545 PASS
+  cross-core CAN 5,000,000 operations, 0 modeled violations
+  remote security 2,000,000 events, accepted_bad=0 false_verified=0
+  remote.html JavaScript syntax PASS
+Known remaining audit targets:
+- serialStr and chgvolt can still be edited asynchronously while CAN payloads are prepared.
+- shared mutable payload arrays / send-path serialization should be audited explicitly.
+- flagCB/acout5C semantics remain unverified and should not be used to infer protocol behavior.
+- no PlatformIO ESP32 build or hardware test performed in this environment.

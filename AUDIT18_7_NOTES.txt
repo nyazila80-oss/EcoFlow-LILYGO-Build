@@ -1,0 +1,11 @@
+AUDIT18.7
+
+Safety hardening after static review of AUDIT18.6:
+- JK-PB FC10 UINT32 write byte order retained as big-endian Modbus register order; verified against public 0x1078 BalanEN capture.
+- Direct 8-byte FC10 write ACK is now parsed and CRC/addr/function/register/count validated.
+- 0x161E read-back is queued only after a valid write ACK.
+- Read-back raw UINT32 is compared with requested value before reporting verified.
+- Device address, charge/discharge MOS, balancer enable and function_bits writes are locked from Web/API for first hardware validation.
+- Normal 0x1620/0x161E polling is blocked while a write ACK is pending.
+- PowerStream local CAN limit defaults aligned to 100% upper / 10% lower.
+- Existing JK telemetry and PowerStream CAN emulation otherwise unchanged.

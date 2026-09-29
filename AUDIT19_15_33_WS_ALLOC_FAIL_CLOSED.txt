@@ -1,0 +1,15 @@
+AUDIT19.15.33 WS-ALLOC-FAIL-CLOSED
+
+Deep audit target: dynamic allocation failure paths in AsyncWebSocket.
+
+Finding:
+- ws_flush_ring() and sendBMSReadings() first called AsyncWebSocket::makeBuffer().
+- If makeBuffer() failed, 19.15.32 called a textAll() overload as fallback.
+- Under genuine heap pressure this is undesirable because the fallback may itself need internal allocation immediately after an explicit allocation failure.
+
+Change:
+- WebSocket log/debug and BMS telemetry now fail closed on makeBuffer() failure.
+- The non-critical WebSocket message is dropped instead of attempting another send/allocation path.
+- No BMS protection settings, RS485 protocol, BLE protocol, CAN payloads, or PowerStream limits changed.
+
+This is a robustness guard, not proof that the earlier hardware heap corruption originated here.

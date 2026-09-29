@@ -1,0 +1,11 @@
+AUDIT19.15.12 RING2-BURST-GUARD
+
+- Keeps BLE, WiFi/WebUI, RS485 and CAN enabled.
+- Replaces the single staging slot in each BLE bridge direction with a fixed depth-2 ring queue.
+- No dynamic allocation in BLE data callbacks.
+- FIFO ordering is preserved.
+- Third packet arriving before the loop drains the queue is dropped and counted; memory cannot grow.
+- Additional static RAM versus 19.15.11 is approximately one 247-byte packet per direction plus small metadata (~0.5 KiB).
+- Advertising restart, remote writes and local notifications remain deferred to the normal loop.
+- Synchronous real-JK connect remains enabled; async connect remains disabled.
+- This build has been statically inspected and host-model stress tested, but not compiled with PlatformIO or tested on ESP32 hardware in this environment.

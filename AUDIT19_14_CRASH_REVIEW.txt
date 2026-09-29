@@ -1,0 +1,12 @@
+AUDIT19.14 CRASH-GUARD
+
+Based on hardware crash log from AUDIT19.13.
+- Removed async NimBLE connect path that aborted immediately after real-JK link-up.
+- Restored synchronous direct connect; no BLE scanning.
+- Added heap gates before NimBLE init and before creating/connecting BLE client.
+- Reduced application CAN RX queue 256 -> 64 messages to preserve internal heap.
+- Suppressed large RS485 raw hex dumps unless VERBOSE_BMS_PRINTS is enabled.
+- Reviewed JK 299/300/308/310 receive bounds: frame_[340] and rawRx_[384] writes are guarded; the 299-byte timeout itself does not prove an RS485 buffer overflow.
+- Existing AUDIT18.2 regression-restored functions retained.
+
+Hardware log showed two distinct failures: heap corruption before BLE in one boot, and abort immediately after async BLE link-up in another. 19.14 therefore prioritizes fail-closed behavior and memory headroom.

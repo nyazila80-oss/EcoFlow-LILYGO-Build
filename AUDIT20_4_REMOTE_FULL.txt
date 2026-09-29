@@ -1,0 +1,11 @@
+AUDIT20.4 REMOTE-FULL
+- Based directly on AUDIT20.3 CAN-RX-PREFILTER.
+- BLE, RS485 parser/write protocol, CAN prefilter/reassembler and queue sizes are unchanged.
+- Expanded /remote into a comprehensive authenticated read-only dashboard for live BMS data, cells, temperatures, setup/configuration and diagnostics.
+- Remote UI exposes only the previously verified seven low-risk controls: balance delta, balance start, SOC100 cell voltage, SOC0 cell voltage, RCV, float voltage and smart sleep.
+- Critical controls (MOS enables, device address, function bits, cell count and protection settings) remain read-only in the remote UI.
+- Write UI treats success only as an increment of verify_ok_count after ACK + 0x161E readback. Historical fail counters can no longer cause a false current failure.
+- No new JK write command/register semantics were introduced.
+- Firmware version: 2.4.4-AUDIT20.4-REMOTE-FULL.
+- remote.html changed: SPIFFS/filesystem image must be uploaded once when moving from 20.3 to 20.4.
+- Static/source review only in this environment unless a separate build result is recorded. Hardware verification remains required.

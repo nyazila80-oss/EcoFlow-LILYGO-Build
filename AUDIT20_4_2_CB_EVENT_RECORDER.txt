@@ -1,0 +1,31 @@
+AUDIT20.4.2 — CB EVENT RECORDER
+Base: 2.4.4.1-AUDIT20.4.1-REMOTE-HARDENED
+New FW_VERSION: 2.4.4.2-AUDIT20.4.2-CB-EVENT-RECORDER
+
+Purpose
+- Passively capture logical EcoFlow CAN message context around inbound CB/2031 or CB/2033.
+- No new CAN writes and no changes to JK BLE, JK RS485, CAN queue/prefilter, or sequencer behavior.
+
+Design
+- Separate rolling PRE ring (96 logical messages) and POST array (96 logical messages).
+- Trigger: valid, CRC-checked inbound type 0xCB with tracker 0x2031 or 0x2033.
+- Trigger message is stored explicitly as TRIGGER.
+- POST capture freezes after 5000 ms or when the bounded POST array is full, whichever comes first.
+- PRE is never overwritten after trigger.
+- Each record: millis, direction, type, tracker, XOR, CRC, payload length, first 8 decoded payload bytes.
+- Recorder works independently of raw RX Logging; raw logging can remain OFF during normal operation.
+
+Web API (Basic Auth protected)
+GET  /api/powerstream/cb-recorder/status
+GET  /api/powerstream/cb-recorder/dump
+POST /api/powerstream/cb-recorder/clear  (same-origin protected)
+
+WebUI
+- /remote includes CB recorder status, dump display, and clear control.
+
+Safety / limits
+- Passive observer only. It does not generate 2031/2033 and does not change battery or PowerStream settings.
+- PRE/POST are bounded by message count, so at very high logical-message rates they may represent less than 5 seconds.
+- Dump allocates temporary snapshot memory only when requested and fails closed if allocation is unavailable.
+- No PlatformIO toolchain was available in the assistant container; this source was not ESP32-compiled here.
+- remote.html JavaScript syntax checked with node --check.

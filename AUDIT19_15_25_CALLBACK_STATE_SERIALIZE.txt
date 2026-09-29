@@ -1,0 +1,7 @@
+AUDIT19.15.25 CALLBACK-STATE-SERIALIZE
+
+- NimBLE host callbacks no longer mutate sAppConnected/sBmsConnected directly.
+- Connection state changes are serialized in processDeferredTransitions() on the Arduino loop task.
+- Disconnect pending flags still gate bridgePump()/remoteNotify immediately.
+- CAN encoder now rejects headerSize != 18 before any header mutation/indexing.
+- No BMS protection values, PowerStream payload definitions, RS485 protocol, SOC limits, or BLE UUIDs changed.

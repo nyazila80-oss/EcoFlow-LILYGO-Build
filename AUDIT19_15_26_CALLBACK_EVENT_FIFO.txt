@@ -1,0 +1,11 @@
+AUDIT19.15.26 CALLBACK-EVENT-FIFO
+
+- Replaced cross-core volatile callback state flags with a fixed 16-entry FIFO.
+- Preserves APP connect/disconnect and BMS fail/disconnect callback ordering.
+- No dynamic allocation in callback event publication.
+- Bridge operations pause while deferred BLE events are pending.
+- Queue overflow is counted and reported later from the Arduino loop.
+- No BMS protection, RS485 protocol, EcoFlow CAN payload, or SOC limit changes.
+- Corrected CAN framing yield condition: now yields every 4 frames as intended, not 3 of every 4.
+- Stale connected BLE client is closed and deferred before any reconnect attempt.
+- FIFO overflow fails closed and resets bridge sessions instead of losing a transition.

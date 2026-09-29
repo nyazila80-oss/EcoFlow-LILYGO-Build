@@ -1,0 +1,31 @@
+AUDIT20.0 REMOTE-WEBUI-GUARD
+============================
+Base: AUDIT19.15.37 FINAL-HOST-AUDITED.
+
+Goal
+- Keep LILYGO as the permanent JK-BMS remote gateway.
+- Remote transport is a PRIVATE VPN (WireGuard/Tailscale or equivalent).
+- Do NOT expose ESP32 HTTP port directly to the public Internet.
+
+Added
+- HTTP Basic authentication for static WebUI and /api/* routes.
+- 20-character random password persisted in NVS namespace remoteauth; printed on Serial at boot.
+- /remote dashboard with telemetry polling and a deliberately narrow UI write list.
+- /api/remote/write-status exposes FC10 ACK/read-back verification counters/status.
+- Same-origin checks added to BMS setup refresh, BMS setting writes and Wi-Fi mutation.
+- Existing JK write path remains FC10 ACK -> 0x161E read-back -> exact UINT32 compare.
+
+Intentionally unchanged
+- JK-PB V19 RS485 parser/register map.
+- BLE proxy and PowerStream CAN protocol logic.
+- Battery protection values and MOS controls.
+- Existing /api/bms/setting server allow-list; remote.html only presents a narrower subset.
+
+Security boundary
+- Basic Auth over plain HTTP is NOT Internet-grade transport encryption. VPN is mandatory for remote use.
+- WebSocket streams remain legacy/local diagnostics; remote.html uses authenticated HTTP polling and does not depend on WebSockets.
+- No public port-forwarding is supported or recommended.
+
+Validation
+- Static source invariant audit and dashboard workflow model performed in host environment.
+- No PlatformIO/ESP32 hardware compile performed here; first real build remains mandatory.

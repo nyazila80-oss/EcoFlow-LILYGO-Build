@@ -1,0 +1,30 @@
+AUDIT20.4.1 REMOTE-HARDENED
+Date: 2026-09-22
+
+Change scope:
+- Server-side /api/bms/setting allow-list reduced to exactly seven reviewed remote settings:
+  bal_delta, bal_start, soc100, soc0, rcv, float, smart_sleep.
+- Critical protection/current/cell-count/capacity/precharge/MOS/function/address controls remain unavailable through this remote endpoint.
+- BLE, RS485, CAN prefilter/reassembler/queue logic unchanged from 20.4/20.3 data path.
+
+Fresh host audit results:
+- CAN prefilter: PASS, 1,100,003 checks.
+- Remote security: PASS, 2,000,000 events; accepted_bad=0; false_verified=0; exact allow-list=true; critical keys absent=true.
+- Cross-core CAN counters: PASS, 5,000,000 operations; modeled violations=0. Known open design note remains ordinary shared bool config flags.
+- Final regression: PASS: EcoFlow 40k valid + 40k corrupt; CAN reassembly/missing/duplicate/trailing 40k each; JK 40k valid + 40k corrupt; JK332=6580; BLE/FIFO=400k; WS/ring=240k; 12 static checks.
+- Heap lifecycle V7: PASS (exit 0), unsafe_null_mutex_calls=0.
+- Powerloss V4: PASS (exit 0), 10,000,000 events, cross_session_violations=0.
+- RS485 timing V5: PASS (exit 0), false_accept=0, mixed_reject=0.
+- BLE notify race V10: PASS, 10,000,000 events, modeled_invalid_notify=0.
+- RS485 wrap/noise V6: PASS, 10,000,000 events, violations=0.
+- remote.html JavaScript: node --check PASS.
+
+Legacy harness notes:
+- host_sim_v8_ble_attr_cache.py and host_sim_v9_ble_write_race.py retain exact historical firmware-version assertions and therefore fail on the 20.4.1 version string before exercising their models. No BLE production code was changed by 20.4.1.
+- host_sim_v2.py contains an obsolete hard-coded source path and is not a valid current-project harness.
+
+Not performed here:
+- PlatformIO firmware compilation (PlatformIO unavailable in audit container).
+- Real ESP32/LILYGO hardware test or real JK-BMS write test.
+
+Do not treat host simulation as hardware proof. Build first; then hardware-test read-only remote dashboard before attempting any allowed setting write.

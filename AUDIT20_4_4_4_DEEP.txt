@@ -1,0 +1,26 @@
+AUDIT20.4.4.4 CONFIG/NVS HARDENED
+
+Changes from 20.4.4.3:
+1. CAN TX runtime gate now has an atomic mirror (acquire/release). EcoFlow sequencer/response paths read canTxEnabledAtomic(); MQTT/Web/BatteryMaster use setCanTxEnabledAtomic().
+2. Ten EcoFlow message-enable flags are published as one atomic 10-bit snapshot. EcoFlow TX paths no longer read the ordinary Config message booleans directly.
+3. Removed the single shared global Preferences object. Core, Wi-Fi, MQTT and PowerStream API persistence now use function-local Preferences handles, preventing namespace begin/end state from being shared by unrelated async callers.
+4. Existing RX logging decoupling, raw CB forensic recorder and low-SOC monitor/failsafe remain unchanged.
+5. Low-SOC remains MONITOR ONLY until DCL mapping is verified. No JK MOS control and no invented PowerStream DCL command.
+
+New host model:
+- host_sim_v20_config_nvs_hardened.py: 4,000,041 checks PASS.
+- Validates atomic TX gate, atomic message mask use in EcoFlow TX path, no global prefs.begin/end use, and randomized publication/read behavior.
+
+Re-run current feature models:
+- RAW CB forensic: 1,520,545 PASS.
+- RX decoupling / low-SOC optional logger: 3,020,108 PASS.
+- race/queue hardening: 2,500,012 PASS.
+- low-SOC atomic/failsafe: 6,000,000 PASS.
+- Remote page extracted JavaScript: node --check PASS.
+- V14 cross-core and V15 remote-security pass when only their stale hard-coded expected FW version is updated to 20.4.4.4. V14's printed OPEN text is stale: canRx is already atomic and 20.4.4.4 additionally hardens canTx/message flags.
+
+Important limitations:
+- No PlatformIO executable is available in this environment; this is NOT a real ESP32 compile result.
+- Function-local Preferences handles remove the shared-handle namespace race. This audit does not claim a formal proof of the ESP-IDF NVS implementation under every possible concurrent flash-write scenario.
+- Other legacy Config fields (batteryMaster, batt, flagCB/acout5C, live numeric emulation values) are not all converted to atomics. They are outside the newly hardened CAN admission/TX message-gating path and remain candidates for a later focused audit.
+- Hardware validation remains required, especially RX Logging ON under load, heap/stack watermarks, canDrop vs rx_log_drop, BLE coexistence, and persistence across reboot.

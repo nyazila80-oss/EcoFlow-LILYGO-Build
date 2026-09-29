@@ -1,0 +1,8 @@
+AUDIT19.6 review fixes
+- NimBLE-Arduino pinned at 2.5.1.
+- Added required NimBLEServer::start() after FFE0/FFE1 creation.
+- 4 MiB partition map rebalanced: two 0x1C0000 (1792 KiB) OTA app slots, 0x60000 (384 KiB) SPIFFS, 64 KiB coredump.
+- Layout ends exactly at 0x400000.
+- Current observed firmware from user: 1,634,399 bytes; new app slot: 1,835,008 bytes; headroom: 200,609 bytes (~10.9%).
+- data directory observed ~96 KiB; SPIFFS 384 KiB leaves substantial room.
+- First partition migration must be flashed by USB; filesystem image must be uploaded again.

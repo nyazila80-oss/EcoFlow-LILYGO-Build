@@ -1,0 +1,14 @@
+AUDIT19.15.35 BLE-WRITE-LINK-GUARD
+
+Change:
+- App->BMS bridge now requires sClient->isConnected() before dequeue/write.
+- Re-checks event state, logical BMS state, client pointer/link, and cached remote characteristic immediately before writeValue().
+- Fail-closed if a disconnect is published between the initial gate and the BLE write.
+
+Rationale:
+- Narrows the disconnect-vs-write race without locking across NimBLE calls.
+- Cached remote attributes from 19.15.34 remain enabled (deleteAttributes=false).
+- No RS485, JK register, PowerStream CAN payload, battery protection, or SOC-limit changes.
+
+Host V9 model: 2,000,000 lifecycle timing events, 0 modeled invalid-pointer writes.
+Limit: host model cannot prove NimBLE internals or ESP32 scheduling behavior; real hardware endurance remains required.

@@ -1,0 +1,8 @@
+20.4.5.2 FAILSAFE-HARDENED
+- Unified guard reasons remain SOC, SOH, BOTH and BMS_STALE_BLOCK.
+- BMS stale is fail-closed logically and now latches recovery until TWO newly validated JK status frames have arrived.
+- Recovery uses the monotonic validated-status-frame counter and unsigned wrap-safe delta.
+- Power-range host simulation deliberately sweeps randomized 0..5000 W requests; no 600 W ceiling exists in guard logic.
+- SOC hysteresis remains unchanged.
+- SOH and BMS-stale physical PowerStream cutoff are NOT falsely claimed: no verified local CAN/DCL or JK-MOS write exists in this codebase for that purpose.
+- Existing normal CAN TX stale-data gate remains intact; stale JK telemetry is never transmitted as current data.

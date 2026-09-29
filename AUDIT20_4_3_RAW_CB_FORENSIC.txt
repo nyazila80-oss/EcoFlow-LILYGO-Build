@@ -1,0 +1,38 @@
+AUDIT20.4.3 RAW-CB-FORENSIC
+Date: 2026-09-22
+
+Purpose
+- Passive raw CAN forensic capture around a validated inbound PowerStream CB/2031 or CB/2033.
+- No new CAN write command and no change to JK RS485/BLE protocol behavior.
+
+Architecture
+- RX raw tap: immediately after successful twai_receive(), before canRxEnabled/rxlogging prefilter.
+- TX raw tap: only after successful twai_transmit().
+- Trigger: only after normal EcoFlow reassembly + length + CRC + XOR decode validates type CB tracker 2031/2033.
+- PRE: 160 raw frames circular.
+- POST: 160 raw frames or 5000 ms after trigger, whichever comes first.
+- Record is packed 18 bytes; static recorder storage = 5760 bytes.
+- Dump is paginated max 32 rows/request; removed full-recorder malloc copies from 20.4.2.
+- RX Logging can remain OFF; forensic tap is independent of raw WebUI logging/prefilter.
+
+Important limitation
+- PRE is frame-capacity bounded, NOT guaranteed to cover five seconds.
+- POST is also capacity bounded and can freeze before five seconds on a busy bus.
+- Trigger timestamp is decoder-validation time. Raw fragments that belong to the trigger message are therefore normally in PRE; this is intentional and useful for reconstruction.
+
+Tests
+- RAW forensic model: PASS, 1,520,545 checks / 4000 randomized seeds.
+  Covered ring wrap, empty/full PRE, unrelated CB tracker false-trigger rejection,
+  2031/2033 trigger, retrigger immunity, PRE immutability, POST capacity freeze,
+  5s timeout, uint32 millis wrap, frozen-state rejection.
+- CAN prefilter model: PASS 1,100,003 checks.
+- Cross-core CAN model: PASS 5,000,000 operations, 0 modeled violations after updating only stale expected version string.
+- Remote security: PASS 2,000,000 events; 428,873 rejected unauthorized/bad-origin; 96,261 verified writes; accepted_bad=0; false_verified=0. Only stale expected version string adjusted in temporary test copy.
+- remote.html JavaScript: node --check PASS.
+- Static source checks: raw hooks present exactly RX+TX; old logical cbrecAdd removed; trigger hook only at validated CB decode path.
+
+Known pre-existing open issue
+- config.canRxEnabled and some config/response flags remain ordinary bools shared across task/core contexts. Not changed here to avoid unrelated architecture churn.
+
+Build status
+- PlatformIO is not installed in the audit container. No claim of ESP32 compile or hardware validation is made.

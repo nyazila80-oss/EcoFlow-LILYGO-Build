@@ -1,0 +1,11 @@
+AUDIT19.9 ROBUST
+- Removes BLE scanning entirely; direct-connects to verified real JK MAC A4:C1:38:09:4B:C2 type 0.
+- Defers NimBLE initialization 15 s after boot so HTTP/WiFi/OTA initialize first.
+- Starts HTTP server before BLE initialization.
+- Removes 15 s blocking WiFi boot wait; STA association/retry is asynchronous.
+- With saved credentials, no AP+STA fallback is forced. Setup AP is only used when no credentials exist.
+- WiFi reconnect does not flip radio mode repeatedly.
+- WiFi sleep disabled for deterministic local WebUI latency while BLE is active.
+- 15 s BLE reconnect backoff; no scan callback / scan timer lifecycle.
+- No BMS limits, MOS writes, RS485 register logic, or PowerStream CAN limits changed.
+- Static source review only; hardware validation required.

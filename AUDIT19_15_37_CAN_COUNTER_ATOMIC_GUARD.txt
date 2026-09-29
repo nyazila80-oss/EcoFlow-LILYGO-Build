@@ -1,0 +1,7 @@
+AUDIT19.15.37 CAN COUNTER ATOMIC GUARD
+- Converted cross-core diagnostic CAN counters from volatile uint32_t to std::atomic<uint32_t>.
+- This removes C++ data races for counters written by CAN tasks and read by loop/WebUI.
+- CAN queue handoff remains FreeRTOS queue based.
+- IMPORTANT OPEN ITEM: Config booleans read by processEcoFlowCAN/canRxTask on core0 and changed on loop/core1 are still ordinary bools. Not changed here because Config is exposed through bool* generic UI API; converting piecemeal could introduce stale mirrors or ABI/API issues. Requires a dedicated config synchronization design.
+- No JK/BMS/CAN payload/protection/SOC limit changes.
+- Host model is not an ESP32 compile or hardware test.

@@ -1,0 +1,22 @@
+AUDIT20.4.4.7 TX-SERIALIZATION
+
+Deep audit findings fixed:
+1) Multi-frame TX could originate from decoder replies and main-loop sequencer concurrently. A whole-message static FreeRTOS mutex now prevents fragment interleaving.
+2) xor3C/xor8C/xor24/xorCB were cross-task plain bytes. They are atomics now.
+3) PowerStream peer serial was a shared char buffer returned by pointer. It now uses a seqlock snapshot and returns String by value.
+4) canHealth was written by sequencer and read by web/MQTT as plain bool. It is atomic now.
+5) Existing private 18-byte TX header copy remains, so global header templates are not mutated during encode.
+
+Model tests:
+- 500,000 randomized two-producer multi-frame serialization cases: PASS, <=1 producer transition per logical pair.
+- 500,000 peer-serial seqlock acceptance/retry cases: PASS.
+- 500,000 generic XOR allocation sequences: PASS.
+Total new model checks: 1,500,000 PASS.
+- remote.html embedded JavaScript syntax: PASS.
+- 9/9 targeted static invariants: PASS.
+
+Important limitations:
+- No PlatformIO/ESP32 compile was performed in this environment.
+- No hardware test was performed.
+- Low-SOC enforcement remains MONITOR_ONLY_UNTIL_DCL_MAPPING_VERIFIED; no JK DSG MOS shutdown and no invented DCL command.
+- TX mutex correctness is intentionally prioritized over concurrent fragment transmission. Hardware timing/latency must be observed after build/flash.

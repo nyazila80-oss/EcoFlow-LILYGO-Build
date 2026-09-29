@@ -1,0 +1,15 @@
+AUDIT19.15.34 BLE-ATTR-CACHE-GUARD
+
+Change:
+- NimBLEClient::connect(target, deleteAttributes=false, asyncConnect=false, exchangeMTU=false).
+- The target is a single fixed JK BMS MAC/UUID pair. Retaining the discovered attribute database is the documented NimBLE-Arduino pattern for reconnecting to the same peer.
+- This avoids deleting/re-discovering service/characteristic objects on every reconnect, reducing heap churn/fragmentation and pointer-lifetime pressure.
+- No JK protocol, RS485, CAN, PowerStream payload, battery setting, or protection threshold changed.
+
+Rationale:
+NimBLE-Arduino usage guidance recommends retaining client/service/characteristic data for recurring connections to the same device because repeated deletion/retrieval fragments heap and reduces connection performance.
+
+Validation:
+- Static source invariant checks included in host simulation.
+- BLE lifecycle model stresses reconnect/disconnect and verifies that attribute identity remains stable across reconnects.
+- Real ESP32/NimBLE hardware is still required to validate library-internal timing and heap behavior.

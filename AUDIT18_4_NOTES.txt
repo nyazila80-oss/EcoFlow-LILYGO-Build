@@ -1,0 +1,12 @@
+AUDIT18.4
+
+1. JK-PB SETUP READ FIX
+- Adds the actually observed 308-byte 0x161E response layout: 300-byte 55AA payload + direct 8-byte FC10 ACK.
+- Keeps 310-byte padded and 332-byte extended variants.
+- 0x1620 telemetry path unchanged.
+
+2. WRITE SAFETY
+- BMS protection-setting writes are NOT enabled yet. Public material confirms which parameters are adjustable, but the exact safe V19 write transaction for this bus-master path has not been verified against this battery. Do not guess writes to protection parameters.
+- PowerStream CB/2031 and CB/2033 are currently parsed as CAN limit messages/ACKs. No verified command has been established here that persistently changes the PowerStream app upper/lower limits over CAN. Existing cloud API path is retained rather than falsely labeling an unverified CAN message as a persistent write.
+
+Next test: flash, open Settings, press Refresh BMS settings. Expected diagnostic: setup OK >= 1 and populated settings.

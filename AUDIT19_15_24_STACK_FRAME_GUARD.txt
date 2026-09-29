@@ -1,0 +1,6 @@
+AUDIT19.15.24 STACK-FRAME-GUARD
+- Replaced three variable-length CAN encoder stack arrays with one fixed bounded 532-byte buffer.
+- Enforces the production EcoFlow header size of exactly 18 bytes.
+- Payload guard remains <=512 bytes and non-null for nonzero length.
+- Intended wire output is byte-for-byte identical to 19.15.23 for valid calls.
+- No battery protection values or PowerStream protocol constants changed.

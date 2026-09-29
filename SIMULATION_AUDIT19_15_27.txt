@@ -1,0 +1,6 @@
+AUDIT19.15.27 host-model checks
+- 20,000 random valid messages, payload 0..512: CRC accepted 20,000/20,000.
+- 20,000 one-bit corruptions before CRC: rejected 20,000/20,000.
+- END exact-length invariant reviewed for early/extra termination.
+- Classic CAN DLC guard rejects >8 before rx.data access.
+These are host/model checks, not an ESP32 build or hardware test.

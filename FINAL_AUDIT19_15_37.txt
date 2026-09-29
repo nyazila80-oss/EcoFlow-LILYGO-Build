@@ -1,0 +1,45 @@
+FINAL HOST AUDIT — AUDIT19.15.37 CAN-COUNTER-ATOMIC-GUARD
+Date: 2026-09-21
+
+Scope
+- JK-PB V19 RS485 parser / 308, 310, 332-byte variants
+- EcoFlow CAN framing/reassembly/CRC and malformed frames
+- BLE proxy lifecycle, fixed-peer attribute cache, callback deferral, queue/session guards
+- Power-loss/noise/millis-wrap host models
+- WebSocket allocation fail-closed paths
+- Cross-core CAN counters
+
+Fresh final regression against THIS 19.15.37 tree
+- EcoFlow valid: 40,000
+- EcoFlow corrupt rejected: 40,000
+- CAN valid reassembly: 40,000
+- CAN missing-frame rejected: 40,000
+- CAN duplicate rejected: 40,000
+- CAN trailing-data rejected: 40,000
+- JK valid: 40,000
+- JK corrupt rejected: 40,000
+- JK 332 opaque-extra cases: 6,580
+- BLE FIFO model ops: 400,000
+- WS ring model ops: 240,000
+- Static invariants: 12/12
+- Result: PASS
+
+Additional host suites re-run in this final pass
+- heap/lifecycle V7: PASS (unsafe null mutex calls 0)
+- power-loss V4: PASS (10,000,000 events, cross-session violations 0)
+- RS485 timing V5: PASS (false accepts 0)
+- notify race V10: PASS (10,000,000 events, modeled invalid notify 0)
+- wrap/noise V6: PASS (10,000,000 events, UART budget max 128, violations 0)
+
+Important limitations / residual risks
+1. This environment did NOT perform a PlatformIO/ESP32 compile. A real toolchain build is mandatory before flashing.
+2. No ESP32 hardware endurance run was performed here. Host models cannot emulate NimBLE/FreeRTOS/TWAI timing exactly.
+3. Config is a shared legacy struct. canRxEnabled is read from the CAN task while UI/MQTT can update it; several WebUI reads also observe telemetry/config written elsewhere. Scalar ESP32 accesses are normally naturally sized, but this is not a formal C++ synchronization scheme. A full config synchronization refactor was intentionally NOT made in this final pass because it would be broad and could introduce more regression risk without a compiler/hardware test.
+4. Direct persistent PowerStream CAN limit writes remain unverified and were not enabled.
+5. JK dangerous writes/MOS/address/function-bit writes remain locked/read-only.
+6. 332-byte bytes 300..323 remain opaque extra data; they are not interpreted.
+
+Decision
+- No further firmware change was made after 19.15.37 in this final host pass.
+- 19.15.37 is the final HOST-AUDITED candidate.
+- It must not be described as proven bug-free until PlatformIO build + ESP32 hardware soak test pass.

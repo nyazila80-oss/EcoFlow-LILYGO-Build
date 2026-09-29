@@ -1,0 +1,23 @@
+AUDIT20.4.4.6 TX-IDENTITY-SNAPSHOT
+
+Deep findings fixed:
+1) Power snapshot used two atomics without a generation guard; input/output could theoretically come from different updates. Added 32-bit seqlock.
+2) CAN identity fields serialStr/chgvolt were read directly while WebUI could update them. Added coherent identity seqlock snapshot.
+3) sendCANMessage mutated shared header[6] and xorCounter could be touched from decoder/main contexts. Encoder now copies the 18-byte header locally; xorCounter is atomic.
+4) Sequencer state was written by decoder core and main loop. Decoder now only publishes atomic heartbeat/start request; main loop exclusively owns running/index/deadline.
+5) Sequencer deadline comparison changed to wrap-safe signed delta.
+6) Observed CB upper/lower values and timestamps changed to atomics for WebUI cross-core reads.
+
+No DCL mapping invented. Low-SOC guard remains MONITOR_ONLY_UNTIL_DCL_MAPPING_VERIFIED.
+No JK MOS shutdown added.
+No PlatformIO/hardware build claimed.
+
+Host model results:
+- TX/identity/sequencer: 2,000,000 PASS
+- dynamic snapshot: 3,000,000 PASS + 1,000,000 battery gates PASS
+- config/NVS: 4,000,041 PASS
+- low-SOC atomic/failsafe: 6,000,000 PASS
+- race/queue: 2,500,012 PASS
+- RX decoupling/LSG/logger: 3,020,108 PASS
+- RAW CB forensic: 1,520,545 PASS
+- CAN prefilter: 1,100,003 PASS

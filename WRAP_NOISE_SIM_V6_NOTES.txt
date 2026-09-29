@@ -1,0 +1,27 @@
+AUDIT19.15.31 - WRAP/NOISE SIM V6
+Date: 2026-09-21
+
+Scope:
+- uint32_t millis() wrap-around behavior
+- continuous UART/RS485 noise/backlog
+- 128-byte per-loop RX processing budget
+- request timeout based on requestMs_ (noise cannot extend timeout)
+- stale-data invalidation
+- continued servicing model for WiFi/BLE/CAN/main loop
+
+Run performed:
+100 seeds x 100,000 loop events = 10,000,000 events.
+Results:
+- uint32 millis wraps crossed: 100
+- request timeouts under noise: 107,472
+- stale invalidations: 100
+- maximum UART bytes consumed per loop: 128
+- all modeled non-UART services received every loop: yes
+- modeled invariant violations: 0
+
+Important limitation:
+This is a host behavioral model derived from the firmware source. It does not emulate ESP32 hardware, FreeRTOS scheduling, NimBLE, TWAI, UART driver internals, interrupts, DMA, or heap behavior.
+
+Source review observation:
+include/config.h correctly identifies FW_VERSION as AUDIT19.15.31-OPAQUE-TRAILER-VERIFIED.
+src/main.cpp boot diagnostic banner still says AUDIT19.15.30 HOST-SIM-GUARD. This is a diagnostic-label-only mismatch and was NOT changed in this package to avoid creating a firmware revision for a cosmetic message.

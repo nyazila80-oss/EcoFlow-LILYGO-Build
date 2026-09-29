@@ -1,0 +1,9 @@
+AUDIT18.5
+
+- Keeps proven 0x1620 telemetry path.
+- Keeps AUDIT18.4 0x161E 308/310/332-byte setup-frame support.
+- Adds allow-listed JK-PB V19 parameter writes using standard Modbus FC10 to settings base 0x1000 + documented byte offset.
+- Web UI adds Write BMS setting control with explicit confirmation.
+- Every write queues a 0x161E re-read for verification.
+- No blind whole-frame writes.
+- PowerStream persistent limit writes over CAN are NOT fabricated; only verified CAN semantics should be added.

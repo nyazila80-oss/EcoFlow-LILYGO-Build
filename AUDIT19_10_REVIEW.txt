@@ -1,0 +1,14 @@
+AUDIT19.10 ROBUST - targeted stability revision
+
+Changes from AUDIT19.9:
+- Correct FW_VERSION to 2.3.2-AUDIT19.10-ROBUST.
+- NTP startup is fully non-blocking. No delay/while loop waits for network time.
+- NTP sync/retry handled by ntpTick() from loop; timeout schedules a later retry.
+- BLE initialization delayed to at least 20 s after boot.
+- With STA mode, BLE init additionally requires 5 s continuous WiFi connectivity.
+- JK direct-connect retained; BLE scanning remains completely disabled.
+- BLE connect timeout reduced from 5 s to 3 s; 15 s reconnect backoff retained.
+- No changes to BMS protection thresholds, MOS controls, RS485 register semantics,
+  PowerStream CAN messages, or the verified JK FFE0/FFE1 bridge protocol.
+
+Static source review only in this environment. Hardware validation remains required.

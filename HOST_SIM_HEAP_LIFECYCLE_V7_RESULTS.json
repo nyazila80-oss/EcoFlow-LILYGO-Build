@@ -1,0 +1,12 @@
+{
+  "seeds": 100,
+  "ops_per_seed": 100000,
+  "events": 10000000,
+  "mutex_alloc_failures": 14,
+  "null_mutex_calls_blocked": 188800,
+  "unsafe_null_mutex_calls": 0,
+  "ble_sessions": 798461,
+  "wifi_cycles": 499534,
+  "mqtt_cycles": 500340,
+  "ws_cycles": 2701687
+}

@@ -1,0 +1,16 @@
+AUDIT19.15.6 BLE-ALLOC-GUARD
+
+Purpose:
+- Keep WiFi/WebUI, RS485, CAN and full JK BLE proxy enabled.
+- Make BLE memory allocation observable step-by-step.
+- Allocate the NimBLE client during guarded BLE initialization, before any real-JK connect attempt.
+- Re-check free heap and largest 8-bit block after client allocation.
+- Latch SAFE HOLD instead of attempting a connection if the combined peripheral+central allocation leaves too little memory.
+
+Unchanged safety behavior:
+- RS485 receive/drain budget remains bounded to 128 bytes per loop.
+- CAN TX remains gated on valid BMS telemetry.
+- No BMS protection values or persistent PowerStream writes changed.
+- Synchronous direct BLE connection remains; no scan and no 19.13 async connect.
+
+This source was statically inspected and ZIP-tested in the assistant environment. PlatformIO was not available there, so it was not compiled or hardware-tested.

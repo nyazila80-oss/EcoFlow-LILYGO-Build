@@ -1,0 +1,6 @@
+AUDIT19.15.21 CALLBACK-QUIET-GUARD
+- Removes Serial I/O from NimBLE host callbacks; drop logging is deferred to Arduino loop.
+- Retains sync direct connect, ring2 queues, deferred session transitions, bounded RS485, heap/stack diagnostics.
+- Model stress: 50 deterministic seeds x 200,000 events = 10,000,000 lifecycle/queue events, 0 model invariant violations.
+- Static checks: no async=true direct connect, no unbounded UART available loop, no callback Serial calls.
+- Not compiled with PlatformIO in this environment and not hardware tested.

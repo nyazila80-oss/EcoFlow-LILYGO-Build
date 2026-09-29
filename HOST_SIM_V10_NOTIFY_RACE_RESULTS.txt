@@ -1,0 +1,7 @@
+events=10000000
+disconnect_events=916108
+reconnect_events=600581
+notify_ok=463321
+fail_closed_drops=177435
+modeled_invalid_notify=0
+PASS

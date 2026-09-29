@@ -1,0 +1,6 @@
+AUDIT19.15.3 ISOLATION
+- BLE intentionally disabled for this diagnostic build.
+- Independent 5 s heartbeat task on core 1 reports heap integrity, WiFi, BMS loop/TX counters and CAN RX/decode/drop counters.
+- JK UART RX processing and stale-input drains are bounded so a noisy/stuck RX stream cannot monopolize loop().
+- No battery protection settings or JK write protocol changed.
+- CAN TX safety gate remains unchanged: when BMS-backed telemetry is selected and JK data is invalid/stale, EcoFlow CAN TX is intentionally suppressed. CAN RX diagnostics remain active.

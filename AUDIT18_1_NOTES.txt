@@ -1,0 +1,7 @@
+AUDIT18.1
+- Cleanup revision based on AUDIT18; no JK 0x1620 parser, RS485 transport, CAN mapping, OTA partition layout or PowerStream control behavior changed.
+- Removes stale historical AUDIT note files from the distributable archive.
+- Canonical /api/bms schema marker: AUDIT18.1-BMS-2.
+- Diagnostic /api/bms/full schema marker: AUDIT18.1-BMS-DIAG-1.
+- Firmware marker: 2.2.0-AUDIT18.1. Web marker: WEB AUDIT18.1.
+- 0x161E setup read remains explicit/manual and must be hardware-validated on the target JK-PB V19.31.

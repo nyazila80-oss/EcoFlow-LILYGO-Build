@@ -1,0 +1,2 @@
+.pio/build/lilygo_tcan485/libb9e/ESPAsyncWebServer/AsyncWebSocket.cpp.o
+.pio/build/lilygo_tcan485/lib1b5/HTTPClient/HTTPClient.cpp.o

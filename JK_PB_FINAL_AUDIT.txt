@@ -1,0 +1,10 @@
+JK-PB V19 UART1/013 audit
+- UART1 protocol 013: JK RS485 Modbus V1.0 at 9600 baud.
+- Status trigger: FC10 register 0x1620.
+- Payload: 300 bytes, header 55 AA EB 90, status type 02 00, SUM8 at byte 299.
+- Trailer parser accepts and CRC-validates both observed forms:
+  A: ACK at bytes 300..307 (308 total).
+  B: 00 + ACK at 301..308 + 00 (310 total).
+- Address 0 is tried first; fallback scan 1..15 only after repeated failures.
+- MOS control is read-only in Web, MQTT and BatteryMaster logic.
+- One bad poll does not erase last good telemetry; 3 s stale timeout gates CAN.

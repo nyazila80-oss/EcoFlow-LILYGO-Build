@@ -1,0 +1,20 @@
+AUDIT4 – PowerStream Open API preparation
+
+Added:
+- PowerStream HW51 EcoFlow Open API configuration page in BMS dashboard.
+- SN defaults to HW51ZEH49GB10829.
+- Access/Secret Key stored in ESP32 NVS namespace psapi; never returned in plaintext by GET endpoints.
+- Signed HMAC-SHA256 EcoFlow EU API requests.
+- Device-list test verifies configured SN is visible to the API account.
+- Read upperLimit/lowerLimit from /iot-open/sign/device/quota/all.
+- Write commands:
+  WN511_SET_BAT_UPPER_PACK / upperLimit (70..100)
+  WN511_SET_BAT_LOWER_PACK / lowerLimit (0..30)
+- After writing, both limits are read back and exact equality is required before UI reports success.
+
+IMPORTANT / intentionally conservative:
+- Existing JK RS485 and EcoFlow CAN path was not changed.
+- No API keys are bundled in firmware.
+- Feature cannot be end-to-end tested until EcoFlow approves the developer account and real keys are entered.
+- HTTPS currently uses WiFiClientSecure::setInsecure() because this project has no maintained CA bundle. Traffic is encrypted, but server certificate identity is NOT verified. For production-hardening, ship a current CA/root or certificate bundle.
+- EcoFlow API calls are synchronous and may block a web request for up to the configured HTTP timeout; CAN/RS485 run independently where task-based, but this should still be treated as an experimental API extension until hardware tested.

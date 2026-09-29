@@ -1,0 +1,31 @@
+AUDIT19.15.29 EVENT-ORDER-GUARD
+
+Further deep audit after 19.15.28.
+
+Fixes:
+1. BLE callback FIFO overflow now clears the entire queued event history atomically.
+   Once any callback event is lost, retained queued ordering can no longer be trusted;
+   fail-closed recovery must not replay stale pre-overflow events.
+2. APP_CONNECT cancels a pending advertising restart. This preserves the final state
+   for a DISCONNECT->CONNECT burst that arrives before Arduino loop processing and
+   avoids restarting advertising after the app is already connected.
+3. Version/log strings updated consistently.
+
+Stress/model checks performed:
+- BLE event ordering: 80 seeds x 250,000 events = 20,000,000 events; 0 modeled
+  connected+restart contradictions; queue bounded at 16.
+- WebSocket ring model: 50 seeds x 200,000 operations = 10,000,000 operations;
+  no capacity/accounting invariant violation, including oversized-line drops and
+  near-full partial flush behavior.
+- Additional source review covered BMS frame bounds, CAN queue overflow handling,
+  BLE session transitions, WebSocket ring locking, and bounded logging buffers.
+
+Note on syntax checking: simple delimiter counters are not a compiler and are confused
+by C++ raw string literals such as the bundled TLS certificate. No claim of a real
+ESP32/PlatformIO compile is made here.
+
+No BMS settings, JK write values, PowerStream payload semantics, SOC limits, CAN IDs,
+or RS485 register values changed.
+
+Limitations: host/model/static audit only. No PlatformIO ESP32 compile and no hardware
+execution was available in this environment.

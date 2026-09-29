@@ -1,0 +1,7 @@
+AUDIT19.15.20 LIFECYCLE-HEAP-GUARD
+
+- BLE client onConnect callback no longer allocates a temporary address String or logs from NimBLE host context.
+- WebSocket ring enqueue now rejects an oversized line instead of risking an infinite drop loop.
+- Hot /api/state and /api/bms JSON builders reserve capacity once to reduce repeated heap reallocations while the UI polls.
+- All prior BLE/RS485/CAN/session/ring2/stack-watermark guards retained.
+- No battery protection values or CAN payload definitions changed.

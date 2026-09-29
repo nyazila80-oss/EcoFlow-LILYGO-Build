@@ -1,0 +1,8 @@
+AUDIT19.15.15 CALLBACK-STATE-GUARD
+
+- Completes callback deferral: server onConnect no longer clears queues in NimBLE callback.
+- Client onConnectFail no longer calls backoff()/mutates remote characteristic/state in NimBLE callback.
+- New pending flags are processed serially from jkBleProxyTick before bridgePump.
+- Existing synchronous direct connect, ring2 queues, session flush, heap guards, RS485 budget and CAN safeguards retained.
+- No battery protection values or PowerStream CAN payloads changed.
+- Static/lifecycle simulation only; not PlatformIO compiled or hardware-tested here.

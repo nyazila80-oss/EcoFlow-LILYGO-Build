@@ -1,0 +1,15 @@
+AUDIT19.15.14 DISCONNECT-RACE-GUARD
+
+Changes from 19.15.13:
+- BLE disconnect callbacks no longer null remote characteristic pointers, flush queues, restart advertising, or change the BLE state machine.
+- Disconnect callbacks only publish pending flags/reasons and mark the affected connection false.
+- jkBleProxyTick() serializes teardown via processDeferredDisconnects() before bridgePump().
+- bridgePump() refuses to start/continue forwarding across a published disconnect boundary.
+- remoteNotify() rejects notifications once a BMS disconnect is pending.
+- Existing ring2 queues, session flushes, synchronous connect, heap guards, RS485 budget, CAN/WiFi/WebUI remain.
+
+Purpose:
+Close the remaining callback-vs-loop race where sRemoteChar/queues could be mutated while bridgePump() was executing a BLE operation.
+
+Validation:
+Static inspection + randomized state-machine simulation only. Not compiled with PlatformIO and not hardware-tested.

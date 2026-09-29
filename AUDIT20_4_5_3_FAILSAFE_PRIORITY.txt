@@ -1,0 +1,25 @@
+20.4.5.3 FAILSAFE-PRIORITY
+
+Fix:
+- BMS validity/stale evaluation now has priority over the optional SOC/SOH enable switches.
+- BMS stale therefore enters BMS_STALE_BLOCK even when SOC guard and SOH guard are both disabled.
+- Existing fail-closed recovery remains: at least two newly validated JK status frames are required before leaving stale recovery.
+- Only after validity/recovery succeeds may both disabled policy guards produce DISABLED.
+
+Deep regression:
+- v17 RX/LSG/logger: 3,020,108 PASS
+- v18 race/queue: 2,500,012 PASS
+- v19 LSG atomic/failsafe: 6,000,000 PASS
+- v20 config/NVS: 4,000,041 PASS
+- v21 dynamic snapshot: 3,000,000 PASS; battery gates 1,000,000 PASS
+- v22 TX/identity/sequencer: 2,000,000 PASS
+- v26 SOC/SOH: 3,000,000 PASS
+- v27 stale recovery/power 0..5000 W: 3,000,000 PASS
+- v28 priority/recovery/SOC/SOH/power 0..10000 W: 9,081,624 checks, 0 violations
+
+Remaining hardware limitation:
+- BMS_STALE_BLOCK and BLOCK_SOH are logical fail-safe requests. sendCANFrame() still fail-closes by suppressing EcoFlow CAN TX when BMS telemetry is invalid. No unverified 0-W/DCL/JK-MOS command has been invented.
+- Therefore physical PowerStream 0-W behavior on CAN silence still requires hardware verification or a verified protocol-level stop command.
+
+Build status:
+- PlatformIO is not installed in this audit runtime. A real lilygo_tcan485_ota clean build is still required before OTA.

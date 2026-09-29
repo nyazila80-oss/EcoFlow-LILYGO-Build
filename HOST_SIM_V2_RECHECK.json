@@ -1,0 +1,16 @@
+{
+  "can_drop_reject": 40000,
+  "can_dup_reject": 40000,
+  "can_reasm_valid": 40000,
+  "can_trailing_reject": 40000,
+  "eco_corrupt_reject": 40000,
+  "eco_valid": 40000,
+  "fifo_ops": 400000,
+  "jk_332_ignored_trailer_stable": 6580,
+  "jk_corrupt_reject": 40000,
+  "jk_valid": 40000,
+  "ring_ops": 240000,
+  "seconds": 8.904,
+  "seeds": 20,
+  "static_checks": 12
+}

@@ -1,0 +1,17 @@
+AUDIT19.15.5 MEMORY-DIAGNOSTIC
+
+Goal: retain WiFi/WebUI + RS485 + CAN + full JK BLE proxy while recovering heap headroom.
+
+Changes from 19.15.4:
+- CAN application RX queue: 64 -> 24 messages. Overflow behavior remains drop-oldest and is counted.
+- CAN RX task stack: 4096 -> 3072 bytes.
+- CAN decode task stack: 6144 -> 4096 bytes.
+- Diagnostic heartbeat stack: 3072 -> 2048 bytes.
+- BLE remains enabled; synchronous direct connection to verified JK MAC remains.
+- RS485 128-byte per-loop budget remains.
+- Existing heap and heartbeat diagnostics remain.
+
+Estimated static FreeRTOS/queue heap recovery versus 19.15.4: about 4.3 KiB, excluding allocator overhead.
+No BMS write/protection values or PowerStream CAN payload semantics changed.
+
+Validation in this environment: source/static checks and ZIP integrity only. No PlatformIO compiler or ESP32 hardware is available here.

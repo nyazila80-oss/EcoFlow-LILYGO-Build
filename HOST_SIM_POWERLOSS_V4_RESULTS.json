@@ -1,0 +1,10 @@
+{
+  "can_blocked": 1087266,
+  "can_tx": 8912734,
+  "cross_session_violations": 0,
+  "events": 10000000,
+  "fifo_overflows": 126119,
+  "recoveries": 53988,
+  "seconds": 14.561,
+  "seeds": 100
+}

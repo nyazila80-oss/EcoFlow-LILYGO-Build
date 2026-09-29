@@ -1,0 +1,4 @@
+AUDIT19.15.36 RACE SIM V13
+events 5000000 forwarded 100414 fail_closed 897907 callback_pointer_derefs 0
+source_checks 7 / 7
+PASS

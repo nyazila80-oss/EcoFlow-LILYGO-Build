@@ -1,0 +1,24 @@
+AUDIT20.4.4.2 RACE-QUEUE-HARDENED
+
+Changes after deep audit of 20.4.4.1:
+1. CAN RX enable and RX logging hot-path gates now use std::atomic<bool> mirrors with acquire/release helpers. Web and MQTT CAN-RX mutations use the atomic setter. RX logging Web mutation uses atomic setter.
+2. Optional raw logger is created before core RX/decode tasks. If logger task creation fails, its queue is deleted before the producer starts. This removes the 20.4.4.1 failure mode where a live RX producer could continue enqueueing into an allocated queue with no consumer forever.
+3. If core task startup fails, optional logger task and queue are rolled back too; retry starts from a clean state.
+4. Raw log timestamps are corrected back to receive time using wrap-safe uint32 millis age, rather than stamping at delayed logger-drain time.
+5. RAW CB forensic recorder and monitor-only Low-SOC guard remain unchanged in enforcement semantics. No JK MOS write and no invented PowerStream DCL command added.
+
+New host model v18:
+PASS race/queue hardening: 2,500,012 checks.
+Existing v17: PASS 3,020,108 checks.
+Existing v16 RAW CB forensic: PASS 1,520,545 checks.
+Final regression with only stale expected version string adjusted: PASS (EcoFlow valid/corrupt 40k each; CAN reassembly/missing/duplicate/trailing 40k each; JK valid/corrupt 40k each; JK332 6580; BLE FIFO 400k; WS ring 240k; static 12/12).
+CAN prefilter: PASS 1,100,003 checks.
+Power-loss model: 10,000,000 events, 0 cross-session violations.
+BLE notify race: 10,000,000 events, 0 modeled invalid notify.
+RS485 wrap/noise: 10,000,000 events, 0 violations.
+remote.html JavaScript: node --check PASS.
+
+Known limits:
+- Low-SOC guard is MONITOR_ONLY_UNTIL_DCL_MAPPING_VERIFIED. It does not yet stop real discharge.
+- Other Config fields remain ordinary values; this hardening specifically removes the known cross-core races for rxlogging/canRxEnabled hot CAN gates.
+- No PlatformIO/ESP32 build or hardware test was performed in this environment.

@@ -1,0 +1,15 @@
+AUDIT19.15.31 OPAQUE-TRAILER-VERIFIED
+
+Purpose: targeted verification of the JK-PB V19 332-byte setup response.
+
+Verified layout used by firmware:
+- bytes 0..299: JK 55 AA EB 90 payload; SUM8 at byte 299
+- bytes 300..323: opaque 24-byte extension; firmware does not decode these bytes
+- bytes 324..331: Modbus FC10 ACK for register 0x161E; shape + CRC16 validated
+
+Safety conclusion:
+The 24 opaque bytes are deliberately not treated as trusted telemetry or configuration.
+A mutation confined to bytes 300..323 therefore does not alter decoded BMS values and is not grounds to reject the transaction without a documented integrity rule for those bytes.
+The host simulator now explicitly regression-tests this property.
+
+No battery protection values, register write values, PowerStream CAN payload semantics, or SOC limits were changed.

@@ -1,0 +1,9 @@
+20.4.5.8 HW FAILSAFE DIAG
+- Adds event-only BMS stale/recovery diagnostics with millis and last-valid age.
+- Keeps EcoFlow CAN TX suppressed during recoveryPending, including after first valid JK frame.
+  This closes a concrete 20.4.5.7 gap: bms.valid() became true on the first recovered frame,
+  so sendCANFrame() could reopen before the intended 2-frame recovery guard completed.
+- Fixes /remote mobile overflow for key/value diagnostics and long Enforcement text.
+- No SOC/SOH thresholds or JK write policy changed.
+- FW/FS manifest bumped together.
+- Physical relay timing still requires hardware observation; diagnostics now permit exact correlation.

@@ -1,0 +1,4 @@
+AUDIT19.15.30 HOST-SIM-GUARD
+- Full PC host regression/fuzz simulation extended.
+- Fixed C4 debug format typo: tracker BE used "%04XX" (printed an extra literal X); now "%04X".
+- No BMS register/protection, CAN payload semantic, SOC limit, BLE protocol, or RS485 protocol changes.

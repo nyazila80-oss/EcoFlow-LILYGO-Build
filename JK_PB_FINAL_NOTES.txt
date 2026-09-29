@@ -1,0 +1,8 @@
+JK-PB V19 UART1/013 9600 read-only adapter
+- Dynamic trigger: FC10 register 0x1620
+- Response accepted: 300-byte 55AA payload + direct 8-byte FC10 ACK (308 total), or padded 00 + ACK + 00 form (310 total)
+- Payload SUM8 and ACK CRC16 are both validated
+- Device address scan starts at 0 (3 attempts), then 1..15 (2 attempts each)
+- Last valid telemetry survives isolated bad polls and expires after 3000 ms
+- Decoded values are committed only after sanity checks
+- JK MOS writes are intentionally disabled; web MOS toggle returns HTTP 409

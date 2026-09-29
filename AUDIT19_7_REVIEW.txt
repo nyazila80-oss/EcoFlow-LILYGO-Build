@@ -1,0 +1,10 @@
+AUDIT19.7 stability hardening
+- Root cause found in Wi-Fi recovery: after a transient STA loss, AUDIT19.6 could fail a 3s reconnect, switch to AP-only, set sticky apHold, and never retry the saved STA. This matches FRITZ!Box offline + BLE proxy still visible.
+- Runtime STA recovery now stays in STA and retries with backoff after the unit has connected successfully once.
+- BLE proxy converted to explicit state machine: SCANNING -> FOUND -> CONNECTING -> CONNECTED -> BACKOFF.
+- No connect is initiated inside scan callback; scan is stopped first and a 250ms settle is used.
+- Passive 5s BLE scan, interval 120ms/window 45ms, 12s reconnect backoff.
+- BMS connected flag is set only after FFE1 discovery + successful notify subscription.
+- Forward writes honor observed JK FFE1 write-no-response capability.
+- Added free-heap and reconnect diagnostics.
+- No battery protection thresholds, MOS controls, CAN limits, or RS485 register semantics changed.

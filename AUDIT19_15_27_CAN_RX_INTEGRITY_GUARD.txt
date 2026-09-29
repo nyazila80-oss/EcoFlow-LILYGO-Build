@@ -1,0 +1,7 @@
+AUDIT19.15.27 CAN RX INTEGRITY GUARD
+
+- Reject impossible classic-CAN DLC > 8 before touching rx.data.
+- Validate EcoFlow reassembled CRC before decode/actions.
+- Accept CRC byte order LE (native TX format) or BE compatibility, but never mismatch.
+- END frame must match declared total length exactly; malformed early/extra END resets immediately.
+- No battery protection values, CAN IDs, payload contents, RS485 writes, or BLE protocol settings changed.

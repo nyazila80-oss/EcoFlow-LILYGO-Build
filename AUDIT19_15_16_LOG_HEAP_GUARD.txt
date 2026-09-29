@@ -1,0 +1,19 @@
+AUDIT19.15.16 LOG-HEAP-GUARD
+
+Finding from whole-project simulation/static audit:
+- CANDUMP was defined only in src/main.cpp. Preprocessor macros are translation-unit local.
+- src/ecoflow.cpp therefore compiled the #else TX logging path when config.txlogging=true.
+- That fallback repeatedly appended CAN frames to global String canLog with no bound/consumer,
+  creating unbounded heap growth and fragmentation during sustained CAN TX logging.
+
+Fix:
+- Force CANDUMP=1 inside src/ecoflow.cpp, so TX logging uses the already bounded WebSocket
+  ring-buffer path streamCanLog() and fixed stack logBuffer, matching RX logging.
+- No BLE, RS485, BMS protection, or CAN payload semantics changed.
+- Existing callback/session/ring2 guards retained.
+
+Validation performed here:
+- Static/preprocessor-path audit confirms unbounded canLog append branch is excluded in ecoflow.cpp.
+- WebSocket logger only enqueues when clients exist and uses fixed-size ring storage.
+- ZIP integrity checked after packaging.
+- Not compiled with PlatformIO and not hardware tested in this environment.

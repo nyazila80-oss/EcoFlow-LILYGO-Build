@@ -1,0 +1,17 @@
+AUDIT19.15.31 POWER-LOSS / RECOVERY HOST SIM V4
+Date: 2026-09-21
+
+Scope: combined model of mid-frame RS485 power loss/truncation, BMS recovery,
+BLE app/BMS connect-disconnect churn including callback FIFO overflow,
+bridge queue flushing, WiFi toggling, and CAN TX fail-closed gating.
+
+Run: 100 deterministic seeds x 100,000 events = 10,000,000 events.
+Result: 0 cross-session bridge violations.
+CAN blocked while telemetry invalid: 1,087,266 modeled ticks.
+CAN TX while telemetry valid: 8,912,734 modeled ticks.
+BMS recoveries: 53,988.
+Forced BLE FIFO overflow/fail-closed recoveries: 126,119.
+
+Important: this is a host behavioral/model test. It does not emulate ESP32 heap,
+NimBLE host internals, FreeRTOS scheduling, UART electrical timing, or TWAI hardware.
+The real LILYGO endurance test remains required for those layers.

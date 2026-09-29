@@ -1,0 +1,27 @@
+AUDIT19.12 REGRESSION REVIEW AGAINST AUDIT18.2
+================================================
+Compared the actual AUDIT18.2 source tree with AUDIT19.11, file by file.
+
+Confirmed retained unchanged from 18.2:
+- data/index.html, debug_streaming.html, ota_update.html, canlog_streaming.html, bms_readings.html
+- src/ota.cpp, src/mqtt.cpp, src/powerstream_api.cpp
+- include wi-fi/can/mqtt/ota/powerstream_api/web public headers
+- Original EcoFlow Open API backend/routes remain present.
+
+Intentional evolution retained:
+- JK-PB setup 308-byte observed frame support, FC10 write ACK + read-back verification.
+- Direct PowerStream CAN local limits and stale-BMS TX safety gate.
+- WiFi/NTP non-blocking recovery hardening.
+- CAN duplicate-task/queue guards.
+- BLE proxy direct-connect architecture (no scan), deferred init and reconnect backoff.
+- Larger dual OTA app partitions required by NimBLE-enabled firmware; SPIFFS reduced accordingly.
+
+Regression found and fixed:
+1. bms_dashboard.html had lost the final loadPs(); poll(); calls. This could leave the BMS dashboard
+   without its periodic /api/bms polling after page load. Restored.
+2. AUDIT18.2 EcoFlow Open API backend survived, but its dashboard controls had been replaced by the
+   later CAN-only UI. Restored the Cloud API controls in parallel with the newer direct-CAN controls.
+   Existing backend implementation was not modified.
+
+Safety-critical battery settings and RS485/CAN protocol values were not changed by this regression fix.
+Review is static/source-level; target PlatformIO build and hardware test remain required.

@@ -1,0 +1,8 @@
+20.4.5.5 WIFI+FS HARDENED
+- Removed unauthenticated catch-all serveStatic("/", SPIFFS, "/").
+- Added authenticated explicit direct-file routes.
+- Added /fs_version.txt manifest and firmware/filesystem version check.
+- Added authenticated /api/fs/status with FS status and usage.
+- SPIFFS remains no-auto-format: corrupted FS is not silently destroyed.
+- Existing WiFi staged recovery from 20.4.5.4 retained.
+- Firmware and filesystem OTA remain separate by design. After firmware-only OTA, FS_VERSION_MISMATCH is expected until matching spiffs.bin is installed.

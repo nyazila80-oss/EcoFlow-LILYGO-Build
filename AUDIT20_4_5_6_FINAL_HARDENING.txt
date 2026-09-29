@@ -1,0 +1,5 @@
+20.4.5.6 FINAL-HARDENED
+- Centralized SPIFFS mount/status initialization: exactly one normal boot SPIFFS.begin(false).
+- Firmware and fs_version manifest bumped together.
+- Release-version assertions in active host regressions updated to current release.
+- No protocol semantics changed; SOC/SOH/BMS-stale behavior preserved.

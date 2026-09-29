@@ -1,0 +1,12 @@
+AUDIT19.15.19 STACK-WATERMARK-DIAG
+
+Changes from 19.15.18:
+- Preserve CAN RX/decode task handles for diagnostics.
+- Heartbeat reports uxTaskGetStackHighWaterMark() raw values for diag/CAN RX/CAN decode.
+- Keep existing task stack allocations unchanged: 2048 / 3072 / 4096.
+- Avoid temporary IPAddress::toString() allocation in 5-second heartbeat; print octets directly.
+- No battery protection, RS485 protocol, BLE bridge semantics, or EcoFlow CAN payload changes.
+
+Interpretation:
+- stackRaw values are deliberately labelled raw because ESP32/FreeRTOS ports differ in documented units across versions. Trend and near-zero values are the primary diagnostic.
+- Do not reduce stack sizes until hardware high-water measurements are collected under BLE+WiFi+RS485+CAN load.

@@ -1,0 +1,22 @@
+AUDIT19.15.11 CALLBACK-DEFER-GUARD
+
+Simulation follow-up to 19.15.10.
+
+Key correction:
+- Server onDisconnect callback no longer calls NimBLEDevice::startAdvertising() directly.
+- Callback only sets sRestartAdvertisingPending.
+- Advertising restart is executed later from jkBleProxyTick()/main loop.
+
+Why:
+19.15.10 intentionally deferred notify/write operations out of BLE callbacks, but still left one nested BLE host operation in ServerCB::onDisconnect(). This revision closes that remaining callback re-entry path.
+
+Preserved:
+- synchronous central connect (async=false)
+- fixed 247-byte callback staging buffers
+- write/notify bridgePump outside callbacks
+- BLE heap guards and integrity check
+- direct known-MAC connect, observer disabled
+- RS485 128-byte loop budget
+- CAN/WiFi/WebUI/heartbeat remain active
+
+Static/simulation reviewed only; not PlatformIO-compiled or hardware-tested in this environment.

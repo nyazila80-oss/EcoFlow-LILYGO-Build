@@ -1,0 +1,29 @@
+AUDIT20.4.4.3 DEEP-RACE-FAILSAFE
+
+Changes from 20.4.4.2:
+- Low-SOC guard configuration is published as one coherent atomic uint32 snapshot (enabled/stop/resume).
+- Low-SOC runtime state, block request, and transition counter are atomic across loop/WebUI contexts.
+- BMS stale/invalid is fail-safe at the request layer: guard requests BLOCK while enabled. Enforcement remains MONITOR_ONLY until DCL mapping is verified; no JK MOS write and no invented PowerStream DCL command.
+- Low-SOC POST validates enabled strictly and retains resume > stop validation.
+- Persistence reads the coherent low-SOC snapshot rather than three independently mutable fields.
+
+Deep host results:
+- LSG atomic/failsafe: 6,000,000 checks PASS.
+- race/queue hardening: 2,500,012 checks PASS.
+- RX-decoupled/LSG/optional logger: 3,020,108 checks PASS.
+- RAW CB forensic: 1,520,545 checks PASS.
+- CAN prefilter: 1,100,003 checks PASS.
+- Cross-core CAN counters: 5,000,000 operations, 0 modeled violations; static checks PASS after updating only expected version string.
+- Remote security: 2,000,000 events; accepted_bad=0; false_verified=0; PASS after updating only expected version string.
+- Power-loss: 10,000,000 events, 0 cross-session violations.
+- RS485 wrap/noise: 10,000,000 events, 0 violations.
+- BLE notify/disconnect: 10,000,000 events, 0 invalid notify.
+- Final regression: PASS, 12 static checks, after updating only expected version string.
+- remote.html JavaScript syntax: PASS.
+
+Remaining formal/open items:
+- Other legacy Config booleans/fields (e.g. canTxEnabled and message response flags) are still ordinary fields that may be read/written across task/core contexts. They were intentionally not broadly refactored in this patch.
+- saveCoreConfig/Preferences is legacy shared persistence; no new global persistence mutex was introduced here.
+- RAW logger isolation prevents its queue overflow from evicting decoder frames, but real hardware timing/heap/driver-overrun behavior still requires validation.
+- No PlatformIO ESP32 build was performed in this environment.
+- No hardware test was performed.

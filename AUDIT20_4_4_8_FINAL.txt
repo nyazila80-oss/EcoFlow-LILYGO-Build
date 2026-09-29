@@ -1,0 +1,31 @@
+AUDIT20.4.4.8 FINAL-AUDIT-HARDENED
+
+Final audit findings fixed after 20.4.4.7:
+1) Startup race: CAN tasks were started before ecoflowMessagesInit(), so an early decoded request could reach sendCANMessage() before the whole-message TX mutex existed and be dropped. ecoflowMessagesInit() now runs before canInitDriver()/canStartTasks().
+2) TX logging race: config.txlogging was read by CAN send paths while WebUI could mutate it. Added atomic TX-logging runtime mirror, load synchronization, WebUI setter, and atomic reads in TX hot path.
+
+Final focused model:
+- 1,000,000 startup-order iterations: 0 modeled violations.
+- 1,000,000 TX-logging read/toggle iterations: 0 modeled violations.
+- 7/7 focused static invariants: PASS.
+- remote.html JavaScript syntax: PASS.
+
+Re-run current regression groups:
+- TX/identity/sequencer: 2,000,000 PASS.
+- Dynamic snapshot: 3,000,000 PASS.
+- BatteryMaster/batt gates: 1,000,000 PASS.
+- Config/NVS: 4,000,041 PASS.
+- Low-SOC atomic/failsafe: 6,000,000 PASS.
+- Race/queue: 2,500,012 PASS.
+- RX decoupling: 3,020,108 PASS.
+- RAW CB forensic: 1,520,545 PASS.
+- CAN prefilter: 1,100,003 PASS.
+- Remote security: PASS after updating only stale expected firmware version.
+- Cross-core CAN: 5,000,000 modeled operations, 0 violations; PASS after updating only stale expected firmware version. Its printed OPEN note is historical/stale for canRx admission because later revisions added atomic mirrors.
+
+Known limitations:
+- No PlatformIO/ESP32 compilation performed here.
+- No real hardware timing/latency test performed.
+- Low-SOC guard remains MONITOR_ONLY_UNTIL_DCL_MAPPING_VERIFIED; it does not disable JK DSG MOS and does not send an invented PowerStream DCL command.
+- Whole-message TX serialization may delay an immediate decoder reply while another logical message is being transmitted; measure this on hardware.
+- acout5C/flagCB remain UI/config values but are not active protocol hot-path inputs in this source revision.

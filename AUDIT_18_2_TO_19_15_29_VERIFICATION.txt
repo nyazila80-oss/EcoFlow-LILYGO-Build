@@ -1,0 +1,46 @@
+FULL LINEAGE VERIFICATION: AUDIT18.2 -> AUDIT19.15.29
+Date: 2026-09-21
+
+Scope
+- Verified all 51 available version archives from AUDIT18.2 through AUDIT19.15.29.
+- ZIP CRC/path integrity: 51/51 passed.
+- Compared the real AUDIT18.2 archive against current AUDIT19.15.29 source tree.
+- Checked protocol invariants for JK-PB RS485, CAN/TWAI, BLE proxy, OTA partitions, local PowerStream SOC limits, WebSocket bounded buffering, MQTT hot path, WiFi/NTP nonblocking changes, and task/heap guards.
+
+Current runtime invariants verified statically
+- JK-PB RS485 9600 baud retained.
+- Status trigger 0x1620 retained.
+- Setup trigger 0x161E retained; 308/310/332 response variants supported where intended.
+- FC10 write ACK CRC/register/count validation retained; 0x161E read-back verification retained.
+- PowerStream CAN remains 1 Mbps extended-frame path.
+- BMS-validity CAN TX safety gate retained.
+- Local PowerStream defaults remain upper=100%, lower=10%.
+- BLE direct target A4:C1:38:09:4B:C2, NimBLE 2.5.1, max connections 2, observer disabled, MTU 247, ATT payload cap 244.
+- BLE connect call is synchronous: connect(target, true, false, false).
+- Callback event FIFO depth 16 and bridge queues depth 2 remain bounded/fail-closed.
+- CAN RX rejects DLC>8, RTR and standard frames; validates declared length and CRC before decoding.
+- CAN TX requires exactly 18-byte header and payload <=512; bounded 532-byte frame buffer.
+- Current 4 MiB partition map is contiguous/non-overlapping and ends exactly at 0x400000.
+
+Fresh model/stress verification in this audit
+- Modbus ACK: 20,000 valid accepted; 20,000 single-bit corruptions detected.
+- JK 55AA+ACK frames: 10,000 valid 308/310/332 shapes accepted; 10,000 injected payload/ACK bit corruptions detected.
+- EcoFlow CAN encode/reassembly/CRC model: 30,000 random payloads (0..512 B) passed; 30,000 injected bit corruptions detected.
+- BLE FIFO/bridge model: 500,000 randomized operations; no bound/state invariant violation; FIFO <=16, bridge queues <=2. Synthetic overloads exercised fail-closed behavior.
+- WebSocket bounded-ring model: 300,000 randomized operations including oversized writes; no capacity/accounting violation.
+
+Lineage/documentation anomalies found
+1. Four historical note files inside the latest working tree had been overwritten/mislabeled relative to their original version archives:
+   AUDIT18_2_NOTES.txt, AUDIT18_6_NOTES.txt, AUDIT19_1_NOTES.txt, AUDIT19_8_REVIEW.txt.
+   This VERIFIED package restores those four files byte-for-byte from their original archives. Firmware behavior is unchanged.
+2. Historical AUDIT19.5 through AUDIT19.9 archives retained FW_VERSION 'AUDIT19.4-BLE-PROXY' in include/config.h. This was a historical version-label defect, not a current runtime defect; AUDIT19.10 and later corrected version markers. AUDIT19.15.29 reports its current version consistently.
+
+Result
+- No new reproducible runtime logic/bounds/queue/protocol defect was found in the current AUDIT19.15.29 source during this full lineage audit.
+- Documentation lineage defects listed above were corrected in this package only.
+- No battery protection setting, JK register/write value, PowerStream CAN payload semantic, SOC limit, CAN ID, or RS485 protocol value was changed by this verification package.
+
+Limitations
+- This is static/source/archive verification plus host-side model simulation.
+- PlatformIO is not installed in the audit environment, so no real ESP32 compile was performed.
+- No LILYGO hardware execution was performed. Actual FreeRTOS stack high-water marks, RF coexistence, NimBLE heap behavior, UART/TWAI electrical behavior and long-duration hardware stability still require target testing.

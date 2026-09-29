@@ -1,0 +1,9 @@
+V14 CROSS-CORE CAN COUNTER SIM
+operations 5000000 violations 0 truth [1998622, 499919, 1501842] seen [1998622, 499919, 1501834]
+PASS atomic definitions
+PASS atomic declarations
+PASS no volatile CAN counters
+PASS version
+PASS queue handoff
+OPEN: config.canRxEnabled and response/config flags are still ordinary bools shared with CAN core0; needs separate design audit.
+PASS

@@ -1,0 +1,12 @@
+{
+  "version": "V6",
+  "seeds": 100,
+  "steps_per_seed": 100000,
+  "total_events": 10000000,
+  "total_wraps": 100,
+  "total_timeouts": 107472,
+  "total_stale_invalidations": 100,
+  "max_uart_bytes_processed_per_loop": 128,
+  "all_other_services_received_every_loop": true,
+  "violations": 0
+}

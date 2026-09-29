@@ -1,0 +1,7 @@
+AUDIT18.6
+- PowerStream page no longer requires EcoFlow Open API for the local CAN-limit workflow.
+- Local upper/lower SOC limits are persisted in NVS and advertised in the existing emulated-battery 3C CAN payload (bytes 128/129).
+- Incoming PowerStream CB/2031 and CB/2033 messages are now sniffed into separate observed values and no longer overwrite the local configured limits.
+- New GET/POST /api/powerstream/can-limits endpoint.
+- Existing cloud API backend remains in source for optional use, but the dashboard CAN workflow does not depend on it.
+- IMPORTANT: CB/2031 and CB/2033 transmit helpers remain ACK responses only; AUDIT18.6 does not mislabel them as verified persistent PowerStream setting writes.

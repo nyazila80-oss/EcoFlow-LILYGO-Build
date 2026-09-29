@@ -1,0 +1,9 @@
+AUDIT19.15.18 MQTT-HEAP-GUARD
+
+- Based on AUDIT19.15.17.
+- BLE/RS485/CAN/WebUI remain enabled.
+- Hot MQTT topics are cached and rebuilt when MQTT config is loaded.
+- 2-second MQTT state publication no longer builds a dynamic Arduino String.
+- State JSON uses a bounded 512-byte stack buffer with snprintf overflow guard.
+- MQTT switch/state publications use cached topic strings.
+- No BMS protection values or PowerStream CAN payloads changed.

@@ -1,0 +1,22 @@
+{
+  "events": 2000000,
+  "rejected_unauth_or_bad_origin": 428873,
+  "verified_writes": 96261,
+  "accepted_bad": 0,
+  "false_verified": 0,
+  "checks": {
+    "version": true,
+    "password_nvs": true,
+    "http_auth_api": false,
+    "ws_auth": false,
+    "can_stats_auth": true,
+    "ota_http_auth": true,
+    "arduino_ota_auth": true,
+    "mutation_origin": true,
+    "mos_blocked": true,
+    "write_resets_status": true,
+    "remote_write_exact_allowlist": true,
+    "remote_critical_keys_absent": true
+  },
+  "pass": false
+}

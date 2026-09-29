@@ -1,0 +1,13 @@
+AUDIT19.15.13 SESSION-QUEUE-GUARD
+
+Purpose: prevent BLE packets from an old app/BMS connection from crossing a disconnect/reconnect boundary.
+
+Changes from 19.15.12:
+- Flush BMS->App queue when a new JK app connects.
+- Flush both bridge queues when JK app disconnects.
+- Flush both bridge queues when real JK BMS disconnects.
+- Flush both queues again after successful real-JK subscribe, before marking bridge connected.
+- Count queue flushes in Bridge-ready diagnostics.
+- Ring depth remains 2; no dynamic allocation added.
+
+Safety: no battery thresholds, RS485 protocol writes, PowerStream CAN payloads, or WiFi/WebUI behavior changed.

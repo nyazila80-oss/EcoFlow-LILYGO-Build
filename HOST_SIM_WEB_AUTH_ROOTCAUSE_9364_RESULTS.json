@@ -1,0 +1,39 @@
+{
+  "runs_per_mode": 250000,
+  "invariant_violations": 0,
+  "results": [
+    {
+      "mode": "auth_cached",
+      "base_requests": 250000,
+      "auth_challenges": 521,
+      "ws_reconnects": 127,
+      "modeled_extra_transactions": 648,
+      "peak_abstract_backlog": 2
+    },
+    {
+      "mode": "auth_retry",
+      "base_requests": 250000,
+      "auth_challenges": 19901,
+      "ws_reconnects": 767,
+      "modeled_extra_transactions": 20668,
+      "peak_abstract_backlog": 4
+    },
+    {
+      "mode": "auth_ws_churn",
+      "base_requests": 250000,
+      "auth_challenges": 5080,
+      "ws_reconnects": 10055,
+      "modeled_extra_transactions": 15135,
+      "peak_abstract_backlog": 4
+    },
+    {
+      "mode": "auth_off",
+      "base_requests": 250000,
+      "auth_challenges": 0,
+      "ws_reconnects": 0,
+      "modeled_extra_transactions": 0,
+      "peak_abstract_backlog": 0
+    }
+  ],
+  "note": "Model demonstrates amplification potential only; it does not prove hardware causality."
+}

@@ -1,0 +1,9 @@
+AUDIT19.1
+- Adapt JK BLE proxy to NimBLE-Arduino 2.3.6 callback signatures.
+- NimBLE 2.x server callbacks use NimBLEConnInfo; client disconnect includes reason.
+- Characteristic onWrite includes NimBLEConnInfo.
+- setPower uses dBm integer.
+- setScanResponse renamed enableScanResponse.
+- Manufacturer data uses byte buffer overload.
+- Explicit public address type for configured JK MAC.
+- Experimental BLE proxy: first test read-only in JK app; do not change BMS settings yet.

@@ -1,0 +1,30 @@
+AUDIT19.11 FULL REVIEW
+======================
+Scope reviewed: boot/hardware init, Preferences/config, SPIFFS, WiFi/reconnect,
+TWAI/CAN tasks and TX safety gate, NTP, AsyncWebServer, OTA, MQTT, JK-PB V19
+RS485 polling/write+verify, EcoFlow sequencing/API, and BLE proxy.
+
+Changes after full review:
+1. CAN task creation is guarded so /can_try_init cannot create duplicate RX/decode tasks.
+2. CAN queue allocation is checked before task creation.
+3. WiFi settings routes no longer block AsyncWebServer for 5 seconds with startSTA(5000).
+   Association remains asynchronous through wifiCredsUpdatedKick()/ensureWiFi().
+4. BLE NimBLE initialization is one-shot. A partial allocation/start failure cannot cause
+   repeated NimBLEDevice::init()/server creation attempts every loop iteration.
+5. Version/log markers updated to AUDIT19.11-FULL-REVIEW.
+
+Intentionally unchanged:
+- JK-PB 0x1620 status and 0x161E setup protocol handling.
+- FC10 write ACK + setup read-back verification and setting allow-list.
+- MOS/address/function-bit safety restrictions.
+- Local PowerStream CAN limits 100/10 defaults and stale-BMS CAN safety gate.
+- Direct BLE target A4:C1:38:09:4B:C2, no BLE scanning, 20 s boot grace,
+  5 s stable WiFi requirement and 15 s BLE reconnect backoff.
+
+Known bounded blocking operations retained because they are user-triggered, not boot-loop paths:
+- EcoFlow cloud API HTTPS calls and limit verification can take seconds.
+- OTA completion/reboot uses short delays.
+These should not affect normal idle boot/WebUI/BLE operation unless explicitly invoked.
+
+Review type: static source review. Hardware validation and a PlatformIO build are still required
+on the target toolchain/device before calling this a final production release.

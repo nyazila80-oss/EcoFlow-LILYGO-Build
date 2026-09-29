@@ -1,0 +1,8 @@
+AUDIT19.4 BLE-PROXY
+- Pins NimBLE-Arduino exactly to 2.5.1 (matching the user's actual PlatformIO build).
+- Replaces forced Public BLE address type with active scanning.
+- Identifies the real JK by MAC A4:C1:38:09:4B:C2 and copies the complete scanned NimBLEAddress, preserving Public/Random address type.
+- Adds scan/connect diagnostics: address type, RSSI, FFE0 discovery, FFE1 discovery/capabilities, subscribe result.
+- Re-scans after disconnect/failure.
+- Keeps RS485/CAN code paths unchanged.
+- First hardware test should be read-only; do not change BMS settings through the JK app until the transparent bridge is confirmed stable.

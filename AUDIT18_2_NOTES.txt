@@ -1,0 +1,7 @@
+AUDIT18.2 verification correction
+
+- Fixes a protocol-validation defect found during deep static review of AUDIT18.1.
+- JK 55AA byte 4 is a frame sequence number (documented 0x01/0x02), not a status/setup type discriminator.
+- Frame acceptance now permits sequence 0x01 or 0x02 and relies on the CRC-validated trailing Modbus ACK register (0x1620 or 0x161E) to bind the response to the request.
+- Parser offsets, RS485 baud/wiring logic, CAN/PowerStream path, partition table and setup field offsets are unchanged.
+- Hardware validation of the 0x161E reply on the user's exact JK-PB V19.31 remains pending.

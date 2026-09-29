@@ -1,0 +1,17 @@
+AUDIT19.15.17 WS-RAM-GUARD
+
+Changes from 19.15.16:
+- WebSocket CAN/debug rings reduced from 8192 to 4096 bytes each.
+  This releases 8192 bytes of static internal RAM for WiFi/NimBLE.
+- Flush slice remains 1024 bytes; oldest complete lines are dropped when full.
+- Removed obsolete unbounded String canLog fallback and global object.
+- BLE proxy, RS485, CAN, WebUI, callback/session/race guards unchanged.
+- No battery protection values or CAN payloads changed.
+
+Simulation/model:
+- 2 x 4096 rings = 8192 bytes versus 16384 previously, saving exactly 8192 static bytes.
+- Ring algorithm retains one-byte gap and drops oldest whole lines before enqueue.
+- With 1024-byte flush slices, a 4095-byte usable ring holds at least 4 flush slices.
+- Under artificial producer overload, data loss is bounded to oldest log lines; protocol paths are unaffected.
+
+Not compiled with PlatformIO or hardware-tested in this environment.

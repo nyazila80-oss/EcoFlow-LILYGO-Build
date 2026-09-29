@@ -1,0 +1,20 @@
+AUDIT19.8 - boot WiFi recovery fix
+
+Root cause found in AUDIT19.7 WiFi fallback:
+- If initial STA association failed once, main.cpp called startAP().
+- startAP() changed radio mode to WIFI_AP and set apHold=true.
+- ensureWiFi() then returned forever while apMode && apHold && !hadStaConnection.
+- Result: BLE proxy remained visible, but FritzBox STA IP (e.g. 192.168.178.67) was unreachable.
+
+Changes:
+- Fallback AP now uses WIFI_AP_STA, never AP-only.
+- Saved STA credentials are retried every 10 seconds even after initial boot failure.
+- Removed sticky initial-AP guard from ensureWiFi().
+- Added explicit STA recovery diagnostics.
+- BLE state machine from AUDIT19.7 retained unchanged except version banner.
+- Battery limits, RS485 writes, MOS controls and PowerStream CAN behavior unchanged.
+
+Expected behavior:
+- If home WiFi connects at boot: normal 192.168.178.x access.
+- If it misses at boot: EcoFlowBridge-* fallback AP remains available while STA keeps retrying.
+- When STA later succeeds, web UI becomes reachable on the DHCP address without rebooting.

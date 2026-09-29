@@ -1,0 +1,11 @@
+AUDIT19.13 ROBUST ASYNC
+
+Changes after full regression review against AUDIT18.2:
+- JK BLE direct connection now uses NimBLE 2.5.x asyncConnect=true. The main Arduino loop is no longer blocked for up to the BLE connect timeout when the real JK BMS is off/unreachable.
+- Added onConnectFail callback and explicit CONNECTING -> DISCOVERING -> CONNECTED state flow.
+- GATT discovery/subscription is deferred out of the NimBLE connection callback.
+- BLE scan remains completely disabled; target remains A4:C1:38:09:4B:C2 type 0.
+- CAN task partial-start rollback: if only one of RX/decode tasks is created, it is deleted and a clean later retry is allowed.
+- No changes to JK protection thresholds, FC10 write allowlist/verify, PowerStream CAN payload logic, 10/100 SOC policy, MQTT, OTA, or restored AUDIT18.2 Web/API functions.
+
+Static review only; hardware/PlatformIO build still required.

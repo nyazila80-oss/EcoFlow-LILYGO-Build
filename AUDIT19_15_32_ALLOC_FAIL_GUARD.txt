@@ -1,0 +1,26 @@
+AUDIT19.15.32 ALLOC-FAIL-GUARD
+
+Finding from V7 heap/lifecycle audit:
+- web.cpp allocated two FreeRTOS mutexes with xSemaphoreCreateMutex() without checking for allocation failure.
+- Under severe heap pressure, a NULL mutex could later reach xSemaphoreTake(), creating a plausible crash path.
+
+Fix:
+- Check both mutex allocations.
+- Disable only the affected CAN/DEBUG WebSocket log ring if its mutex allocation fails.
+- rb_enqueue_line() and ws_flush_ring() fail closed when rb.mtx == NULL.
+- Corrected stale boot diagnostic label to 19.15.32.
+- No BMS protection settings, JK write commands, PowerStream CAN payloads, SOC limits, BLE protocol, or RS485 parser semantics changed.
+
+V7 host lifecycle simulation:
+- 100 seeds x 100,000 events = 10,000,000 events.
+- 14 deliberately modeled mutex allocation failures.
+- 188,800 attempted ring operations with unavailable mutexes safely blocked.
+- unsafe NULL-mutex operations: 0.
+- BLE session transitions: 798,461.
+- WiFi transitions: 499,534.
+- MQTT events: 500,340.
+- WebSocket events: 2,701,687.
+
+Full V2 regression rerun against 19.15.32: PASS (12/12 source invariants and all protocol tests).
+
+Limit: host simulation cannot prove ESP32 heap allocator/NimBLE/AsyncTCP behavior. Hardware endurance testing remains required.

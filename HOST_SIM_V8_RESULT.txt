@@ -1,0 +1,2 @@
+ops=2000000 reconnects=50163 disconnects=50162 writes=39473 notifies=36467 violations=0
+PASS BLE attribute-cache lifecycle model

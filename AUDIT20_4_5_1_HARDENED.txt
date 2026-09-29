@@ -1,0 +1,6 @@
+AUDIT20.4.5.1 HARDENED
+- Fixed SOC hysteresis latch lifetime: disabling SOC clears the latch; re-enable cannot inherit a stale block.
+- CAN advertised SOC floor now follows the actual SOC hysteresis latch: base lower limit while ALLOW, max(base, stop) while BLOCK_SOC/BOTH; resumes to base at resume threshold.
+- SOH remains BLOCK_REQUEST_ONLY. No unverified JK MOS write or PowerStream DCL/SOH command was invented.
+- Stale BMS remains fail-safe BLOCK_REQUEST, but no false claim of physical enforcement is made.
+- Hardware verification remains mandatory before calling the guard a physical discharge cutoff.

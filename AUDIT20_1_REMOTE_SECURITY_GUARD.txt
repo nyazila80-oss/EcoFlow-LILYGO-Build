@@ -1,0 +1,27 @@
+AUDIT20.1 REMOTE SECURITY GUARD
+
+Simulation/audit found real exposure in AUDIT20.0:
+- WebSocket endpoints /log, /bms, /debug were not protected by HTTP credentials.
+- /can_stats was unauthenticated.
+- Browser OTA pages/uploads and ArduinoOTA did not share the generated remote password.
+- Some mutating endpoints lacked the same-origin guard.
+
+Changes:
+- Shared remote auth helpers exported via web.h.
+- WebSocket handlers use same authentication credentials.
+- /can_stats authenticated.
+- ArduinoOTA password set to generated remote admin password.
+- HTTP firmware/SPIFFS OTA final handlers and upload chunk handlers require auth; mutations require same-origin.
+- /api/net, /api/toggle, /update_param, /can_try_init, /reboot hardened with same-origin checks where mutating.
+- Core JK RS485/CAN/BLE protocol logic unchanged.
+
+Host tests:
+- V15 remote security model: 2,000,000 events; accepted_bad=0; false_verified=0; all 10 source checks PASS.
+- Final protocol regression: all existing JK/CAN/BLE source invariants PASS.
+- V14 cross-core CAN model: 5,000,000 operations, violations=0.
+
+Limitations:
+- No PlatformIO/ESP32 compilation in this environment.
+- No physical ESP32/JK/PowerStream test.
+- setAuthentication() and ArduinoOTA.setPassword() must be confirmed by the real toolchain/library build.
+- VPN remains required; do not expose HTTP port 80 directly to the public Internet.

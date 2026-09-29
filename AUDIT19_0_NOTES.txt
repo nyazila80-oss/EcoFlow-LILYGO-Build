@@ -1,0 +1,12 @@
+AUDIT19.0 BLE PROXY - EXPERIMENTAL
+
+Goal: Original JK app -> virtual JK BLE endpoint on LILYGO -> real JK-PB over BLE.
+Target real BMS MAC: A4:C1:38:09:4B:C2
+Advertised virtual name: 603134845005019-00
+Service/characteristic: FFE0 / FFE1
+
+This is a first hardware-test branch. Existing RS485 and CAN code is left intact.
+No Internet BLE tunnel is implemented.
+Do NOT use write/settings commands in the JK app on the first test. First verify discovery, connection and live telemetry only.
+
+Known test risk: ESP32 Wi-Fi + BLE coexistence and the exact JK app discovery expectations must be validated on the user's hardware.

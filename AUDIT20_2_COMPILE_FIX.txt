@@ -1,0 +1,16 @@
+AUDIT20.2 COMPILE-FIX
+
+Fixes based on the first real PlatformIO build of AUDIT20.1:
+- web.cpp: corrected invalid over-escaped JSON C++ string literals around former lines 419/428.
+- web.cpp: corrected multi-character constant \\0 to the NUL character \0.
+- web.cpp: corrected literal \\n in the remote credential log to newline \n.
+- jk_ble_proxy.cpp: callback/drop diagnostic counters changed from volatile uint32_t to std::atomic_uint32_t; deferred log counters use exchange(0). This removes the C++20 deprecated volatile ++ warnings visible in the real build while preserving cross-task safety.
+- No JK register map, battery protection value, EcoFlow CAN payload, SOC limits, or remote write allow-list changed.
+
+Validation in this environment:
+- malformed over-escaped source patterns scanned.
+- C++ JSON format/string snippets compiled with host g++.
+- lexical delimiter check performed.
+- ZIP integrity checked.
+
+LIMITATION: full ESP32/PlatformIO toolchain is not installed in this environment. The definitive validation is the user's next real PlatformIO build.

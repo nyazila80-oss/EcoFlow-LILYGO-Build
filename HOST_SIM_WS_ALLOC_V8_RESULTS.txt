@@ -1,0 +1,11 @@
+AUDIT19.15.33 WebSocket allocation-failure model
+events=2000000
+alloc_success=1840085
+alloc_failure=159915
+second_allocation_attempt_after_failure=0
+no log raw fallback=PASS
+no bms raw fallback=PASS
+log makeBuffer remains=PASS
+bms makeBuffer remains=PASS
+mutex guards remain=PASS
+version=PASS

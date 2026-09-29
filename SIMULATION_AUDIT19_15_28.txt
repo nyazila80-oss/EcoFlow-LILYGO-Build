@@ -1,0 +1,7 @@
+AUDIT19.15.28 final host/static stress summary
+- 200,000 randomized CAN fragmentation/trailing-byte model cases: passed.
+- 2,000,000 randomized BLE lifecycle/ring-queue model events: passed; queue bounds preserved.
+- CAN RX now fails closed on physical reassembly overflow, bytes beyond declared total, RTR, standard frames, DLC > 8, CRC mismatch, and END length mismatch.
+- Lexer-style delimiter scan excluding comments, string literals and character literals: balanced for project src/include.
+- Unsafe C string calls strcpy/strcat/sprintf/gets: none found.
+- This is not a PlatformIO compile or hardware test; real ESP32/NimBLE/WiFi/TWAI/UART behavior remains hardware-dependent.

@@ -1,0 +1,18 @@
+AUDIT19.15.31 RS485 TIMING SIM V5
+
+Purpose: model the current bms.cpp transaction boundaries around the 1200 ms hard response timeout, partial 308/310/332-byte JK frames, late bytes after timeout, bounded 128-byte stale-RX drain, header resynchronisation, and a following transaction.
+
+The simulator implements the same accepted frame lengths, 55 AA EB 90 header checks, SUM8 rule, FC10 ACK shape and Modbus CRC16 checks used by bms.cpp.
+
+Run: 100 deterministic seeds x 500 timing scenarios = 50,000 scenarios.
+Results:
+- complete-before-timeout scenarios: 32,288
+- timeout/partial scenarios: 17,712
+- late old bytes generated: 2,687,328
+- successful clean resynchronisations into the next transaction: 17,712
+- mixed-frame rejects: 0
+- false accepted cross-transaction frames: 0
+
+Interpretation: in this model, late suffix bytes left after the bounded 128-byte drain do not cause an old partial transaction to be accepted as the next transaction. Header resynchronisation skips the suffix and the next frame is still required to pass SUM8 plus a register/address-specific FC10 CRC16 ACK.
+
+No firmware source was changed by this audit. This is a host model, not ESP32/UART hardware emulation. Physical UART FIFO timing, ISR scheduling, electrical noise, FreeRTOS scheduling and rollover behaviour remain hardware/integration test items.

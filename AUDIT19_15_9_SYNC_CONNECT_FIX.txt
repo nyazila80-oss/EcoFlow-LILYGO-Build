@@ -1,0 +1,8 @@
+AUDIT19.15.9 SYNC-CONNECT-FIX
+
+Critical correction found during static simulation/review:
+NimBLE-Arduino 2.x connect(address, deleteAttributes, asyncConnect, exchangeMTU).
+19.15.8 called connect(target, true, true, false), which enabled asyncConnect despite comments claiming synchronous operation.
+19.15.9 changes this to connect(target, true, false, false).
+This removes the exact async-connect mode associated with the earlier 19.13 abort.
+All BLE proxy, RS485, CAN, WiFi/WebUI and diagnostics remain enabled.

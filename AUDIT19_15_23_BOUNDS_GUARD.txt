@@ -1,0 +1,7 @@
+AUDIT19.15.23 BOUNDS-GUARD
+
+- Keeps all 19.15.22 BLE/RS485/CAN/WiFi/WebUI guards.
+- sendCANMessage now requires headerSize >= 18 before reading tracker bytes [16]/[17].
+- Rejects nonzero payloadSize with null payload.
+- Adds a 512-byte payload cap to bound stack VLAs in the encoder. Current internal payloads are far below this cap.
+- Aligns boot/BLE diagnostic version strings with 19.15.23.

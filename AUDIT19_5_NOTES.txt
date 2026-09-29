@@ -1,0 +1,18 @@
+AUDIT19.5 - 4MB OTA + SPIFFS partition rebalance
+
+T-CAN485 official flash size: 4 MB.
+Partition layout:
+- NVS:      0x005000 = 20 KiB
+- OTA data: 0x002000 = 8 KiB
+- APP0:     0x1B0000 = 1728 KiB
+- APP1:     0x1B0000 = 1728 KiB
+- SPIFFS:   0x080000 = 512 KiB
+- coredump: 0x010000 = 64 KiB
+
+Current observed firmware from user's AUDIT19.4 build: 1,634,399 bytes.
+APP capacity in this layout: 1,769,472 bytes.
+Headroom: 135,073 bytes (~8.3% over current firmware size).
+Current data/ directory payload: ~79,377 bytes, so 512 KiB SPIFFS leaves ample room for current filesystem image.
+
+IMPORTANT MIGRATION:
+Changing partitions.csv changes the flash partition table. The first installation of AUDIT19.5 must be done once over USB/serial using env:lilygo_tcan485 (not OTA). After that, firmware OTA can use env:lilygo_tcan485_ota again. Upload the SPIFFS filesystem image after the partition-table migration because the SPIFFS partition moved/resized.

@@ -1,0 +1,5 @@
+AUDIT19.15.28 FINAL-STRESS-GUARD
+- CAN RX reassembly now rejects overflow/trailing bytes instead of clamping.
+- Rejects RTR and standard CAN frames before EcoFlow reassembly.
+- Runtime version/log labels synchronized to 19.15.28.
+- No battery protection values, JK write protocol, or PowerStream payload semantics changed.

@@ -1,0 +1,17 @@
+AUDIT19.15.8 BLE-TIMING-GUARD
+
+Simulation-driven changes from 19.15.7:
+- BLE remains fully enabled.
+- Direct synchronous JK connect timeout reduced 3000 -> 1500 ms.
+  Reason: BMS stale threshold is 3000 ms; a 3 s synchronous BLE connect attempt can itself
+  stall loop()/bmsLoopTick()/canTxSequencerTick long enough to make telemetry stale and suppress CAN TX.
+- BLE reconnect backoff increased 15 -> 20 s to reduce repeated main-loop disturbances while JK BLE is unavailable.
+- Heap integrity is checked immediately before every real-JK connect attempt. A failed check latches SAFE HOLD.
+- Existing 19.15.7 lean NimBLE settings retained: max 2 connections, observer/scanner off, MTU 247.
+- Existing bounded RS485 RX/drain, heartbeat, CAN diagnostics, WiFi/WebUI and BLE proxy retained.
+- No BMS protection thresholds, persistent BMS writes, or PowerStream CAN payloads changed.
+
+Simulation conclusion:
+- 19.15.7 had a deterministic timing hazard: worst-case 3000 ms synchronous connect timeout equals the 3000 ms BMS stale window.
+- 19.15.8 reduces that single blocking interval to 1500 ms, leaving ~1500 ms nominal margin before stale gating, excluding discovery/other work.
+- Hardware-specific NimBLE allocation and RF coexistence still cannot be fully simulated off-target.

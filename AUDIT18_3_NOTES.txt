@@ -1,0 +1,12 @@
+AUDIT18.3 hardware-test build
+
+JK-PB settings:
+- Keeps the proven 0x1620 telemetry path unchanged.
+- 0x161E still requires a CRC-valid trailing ACK and valid 55AA checksum.
+- Setup acceptance no longer rejects a complete valid frame solely because firmware-specific non-critical fields are outside guessed ranges.
+- Core fields remain sanity-checked; failures print a diagnostic bit mask and decoded candidate values to Serial.
+
+PowerStream CAN:
+- Existing CAN decoder already receives CB/0x2031 and CB/0x2033 limit values and stores them in config.bmsChgUp/bmsChgDn.
+- Existing outbound CAN battery messages already advertise those limits.
+- The EcoFlow Public API page is still separate; persistent PowerStream app upper/lower SOC settings are NOT falsely claimed to be writable by CAN without a verified command capture.

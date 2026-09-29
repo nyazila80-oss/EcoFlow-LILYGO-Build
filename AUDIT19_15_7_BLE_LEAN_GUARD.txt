@@ -1,0 +1,13 @@
+AUDIT19.15.7 BLE-LEAN-GUARD
+
+Purpose: preserve full BLE proxy + WiFi/WebUI + RS485 + CAN while reducing unused NimBLE configuration.
+
+Changes from 19.15.6:
+- NimBLE max simultaneous connections: 3 -> 2 (exactly one JK-app peripheral link + one real-JK central link).
+- NimBLE observer/scanner role compiled out; this firmware uses verified direct MAC connection and never scans.
+- Preferred ATT MTU set to 247 to match runtime MTU instead of library default 517.
+- Existing staged heap checkpoints, client pre-allocation guard, bounded RS485, CAN diagnostics and heartbeat retained.
+- No BMS protection values or PowerStream CAN payloads changed.
+
+Safety: no unverified battery writes added.
+Validation in this environment: static inspection + ZIP integrity + host-side memory-envelope/state reasoning only; no ESP32/PlatformIO build or hardware execution.

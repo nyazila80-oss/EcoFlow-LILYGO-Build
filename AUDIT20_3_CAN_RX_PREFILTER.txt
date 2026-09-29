@@ -1,0 +1,9 @@
+AUDIT20.3 CAN-RX-PREFILTER
+
+- Based on AUDIT20.2-COMPILE-FIX.
+- CAN RX task now prefilters unrelated frames when raw RX logging is disabled.
+- Only 0x10014001 / 0x10114001 / 0x10214001 enter the decoder queue in normal operation.
+- Raw RX logging ON preserves the previous all-frame behavior.
+- Added canFilt heartbeat counter to distinguish intentional filtering from drops.
+- BLE maxConn diagnostic now prints MYNEWT_VAL(BLE_MAX_CONNECTIONS), the configured NimBLE value.
+- No BMS write/protection values, RS485 parser, EcoFlow payloads, or BLE connection behavior changed.

@@ -1,0 +1,10 @@
+AUDIT20.4.4.1 DEEP HARDENED
+- Deep audit found an availability defect in 20.4.4: optional raw-log task allocation/creation failure rolled back the core CAN RX/decode tasks.
+- Fixed: raw logger is best-effort only; core CAN starts when RX+decode start, even if logger is unavailable.
+- Decoder admission is invariant with RX Logging OFF/ON; only ext non-RTR 10014001/10114001/10214001 enter app decoder queue.
+- Raw forensic tap remains before admission filter.
+- Low-SOC guard remains monitor-only; no JK MOS or unverified DCL write.
+- BMS stale while already blocked retains BLOCK_REQUESTED internally; stale while unblocked remains unblocked. This must be revisited before real DCL enforcement; fail-safe policy is not yet armed.
+- Remaining formal issue: config.rxlogging and config.canRxEnabled are ordinary bools accessed cross-task/core. No architecture-wide atomic refactor in this patch.
+- Host deep model PASS; RAW CB forensic model PASS; remote inline JS syntax PASS.
+- No PlatformIO compiler available in this environment; no claim of ESP32 build/hardware PASS.
