@@ -3,7 +3,7 @@
 #include <Preferences.h>
 #include <atomic>
 
-#define FW_VERSION "2.4.5.9.36.7.11-AUDIT20.4.5.9.36.7.11-SECURITY-HARDENED-DIAG"
+#define FW_VERSION "2.4.5.9.36.7.15I-X509-ROOTCAUSE"
 
 // RS485
 #define RS485_TX 22
