@@ -40,9 +40,11 @@ jobs:
           SSL="$HOME/.platformio/packages/framework-arduinoespressif32/libraries/WiFiClientSecure/src/ssl_client.cpp"
           grep -F 'MBEDTLS_SSL_VERIFY_REQUIRED' "$SSL"
           grep -F 'mbedtls_x509_crt_verify_info' "$SSL"
-          grep -F 'authority_key_id.keyIdentifier' "$SSL"
-          grep -F 'crt->subject_key_id' "$SSL"
+          grep -F 'tls15o_parse_key_ids' "$SSL"
+          grep -F 'crt->v3_ext' "$SSL"
           grep -F 'crt->serial' "$SSL"
+          if grep -Fq 'crt->subject_key_id' "$SSL"; then exit 1; fi
+          if grep -Fq 'authority_key_id.keyIdentifier' "$SSL"; then exit 1; fi
           pio run -e lilygo_tcan485_ota
           pio run -e lilygo_tcan485 -t buildfs
           pio run -e lilygo_tcan485_ota -t buildfs
