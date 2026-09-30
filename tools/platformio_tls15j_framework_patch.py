@@ -2,13 +2,18 @@
 Import('env')
 from pathlib import Path
 
-# A PlatformIO `pre:` extra script runs before framework packages are guaranteed
-# to be resolved.  Patch at the pre-build stage instead, when the Arduino
-# framework package is available, and fail closed if it still cannot be found.
-def install_tls15j_framework_hook(source, target, env):
+# 15J must instrument WiFiClientSecure before its translation unit is compiled.
+# CI therefore resolves PlatformIO packages explicitly before the build starts.
+# This script then patches the resolved framework immediately when SCons loads
+# the pre: extra script.  Do not defer this to a firmware.elf pre-action: that
+# action runs after ssl_client.cpp may already have been compiled.
+def install_tls15j_framework_hook(env):
     package_dir = env.PioPlatform().get_package_dir('framework-arduinoespressif32')
     if not package_dir:
-        raise RuntimeError('15J: framework-arduinoespressif32 package is not resolved at pre-build stage')
+        raise RuntimeError(
+            '15J: framework-arduinoespressif32 is not resolved; run '
+            '`pio pkg install -e lilygo_tcan485` before building'
+        )
 
     packages = Path(package_dir)
     base = packages / 'libraries' / 'WiFiClientSecure' / 'src'
@@ -50,15 +55,17 @@ def install_tls15j_framework_hook(source, target, env):
             raise RuntimeError('15J: CA-chain anchor missing')
         s = s.replace(verify_anchor, verify_anchor + verify_line, 1)
 
-    # Safety invariants: this patch must observe validation, never weaken it.
-    for token in ('MBEDTLS_SSL_VERIFY_REQUIRED', 'mbedtls_ssl_conf_verify(&ssl_client->ssl_conf, tls15j_verify_cb, NULL)', 'return 0;'):
+    # Safety invariants: observe verification only; never weaken it.
+    for token in (
+        'MBEDTLS_SSL_VERIFY_REQUIRED',
+        'mbedtls_ssl_conf_verify(&ssl_client->ssl_conf, tls15j_verify_cb, NULL)',
+        'return 0;',
+    ):
         if token not in s:
             raise RuntimeError('15J invariant missing: ' + token)
 
     hdr.write_text(h, encoding='utf-8')
     cpp.write_text(s, encoding='utf-8')
-    print('15J framework hook installed: verify flags captured without changing fail-closed validation')
+    print('15J framework hook installed before compile: verify flags captured without changing fail-closed validation')
 
-# PRE action on the firmware program runs after PlatformIO has resolved framework
-# packages but before framework sources are compiled.
-env.AddPreAction('$BUILD_DIR/${PROGNAME}.elf', install_tls15j_framework_hook)
+install_tls15j_framework_hook(env)
