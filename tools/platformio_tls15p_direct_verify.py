@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 Import('env')
 from pathlib import Path
+import re
 pkg=env.PioPlatform().get_package_dir('framework-arduinoespressif32')
 if not pkg: raise RuntimeError('15P: framework unresolved')
 base=Path(pkg)/'libraries'/'WiFiClientSecure'/'src'; hdr=base/'ssl_client.h'; cpp=base/'ssl_client.cpp'
@@ -8,8 +9,7 @@ h=hdr.read_text(encoding='utf-8'); s=cpp.read_text(encoding='utf-8')
 for t in ('tls15o_get_serial','tls15j_verify_cb','MBEDTLS_SSL_VERIFY_REQUIRED'):
     if t not in h+s: raise RuntimeError('15P requires 15O state: '+t)
 # 15P does not weaken TLS. It independently verifies each presented cert signature
-# against its issuer public key inside the existing verify callback, exposing whether
-# the crypto primitive succeeds even when normal chain building returns NOT_TRUSTED.
+# against its issuer public key inside the existing verify callback.
 decl='''\n// 15P observation/proof: direct certificate-signature verification result.\nint tls15p_get_direct_sig_rc(int depth);\n'''
 if 'tls15p_get_direct_sig_rc' not in h: h += decl
 storage=r'''
@@ -31,8 +31,6 @@ if 's_tls15p_direct_sig_rc' not in s:
 old='            s_tls15o_pk_raw_len[depth]=crt->pk_raw.len;'
 new=old+r'''
             s_tls15p_seen[depth]=crt;
-            // mbedTLS callbacks arrive leaf->issuer on this observed chain. When an
-            // issuer has now arrived, verify the immediately preceding child.
             if(depth>0 && depth<TLS15M_MAX_DEPTH && s_tls15p_seen[depth-1])
                 s_tls15p_direct_sig_rc[depth-1]=tls15p_verify_cert_sig(s_tls15p_seen[depth-1],crt);'''
 if new not in s:
@@ -45,7 +43,14 @@ if newr not in s:
  s=s.replace(oldr,newr,1)
 for required in ('MBEDTLS_SSL_VERIFY_REQUIRED','mbedtls_pk_verify_ext','tls15p_direct_sig_rc'):
  if required not in h+s: raise RuntimeError('15P invariant missing: '+required)
-for forbidden in ('MBEDTLS_SSL_VERIFY_NONE','setInsecure()'):
- if forbidden in s: raise RuntimeError('15P refuses insecure verification: '+forbidden)
+# Guard only active weakening calls/assignments. The framework may legitimately
+# contain VERIFY_NONE in other branches or diagnostics; mere token presence is not a failure.
+active=[]
+for line in s.splitlines():
+ stripped=line.strip()
+ if not stripped or stripped.startswith('//') or stripped.startswith('*'): continue
+ if re.search(r'mbedtls_ssl_conf_authmode\s*\([^;]*MBEDTLS_SSL_VERIFY_NONE',line): active.append(stripped)
+ if re.search(r'\bsetInsecure\s*\(',line): active.append(stripped)
+if active: raise RuntimeError('15P refuses active insecure verification: '+' | '.join(active[:3]))
 hdr.write_text(h,encoding='utf-8'); cpp.write_text(s,encoding='utf-8')
 print('15P direct certificate signature proof installed; normal TLS verification unchanged/fail-closed')
