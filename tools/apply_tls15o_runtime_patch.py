@@ -18,7 +18,7 @@ rows=[]
 for d in range(4):
     suffix=',' if d < 3 else ']'
     row=(
-        ' String("{\\\"depth\\\":'+str(d)+',\\\"serial\\\":\\\"")'
+        'String("{\\\"depth\\\":'+str(d)+',\\\"serial\\\":\\\"")'
         '+tls15mJsonEscape(tls15o_get_serial('+str(d)+'))'
         '+"\\\",\\\"ski\\\":\\\""+tls15mJsonEscape(tls15o_get_ski('+str(d)+'))'
         '+"\\\",\\\"aki\\\":\\\""+tls15mJsonEscape(tls15o_get_aki('+str(d)+'))'
@@ -27,8 +27,10 @@ for d in range(4):
         '+"}'+suffix+'"'
     )
     rows.append(row)
-extra=(needle+'\\"tls15o_version\\":\\\""+String(TLS15O_VERSION)+"\\\",\\"tls15o_cert_identity\\":["+\n'
-       + '+\n'.join(rows) + ',')
+# needle deliberately ends inside the existing C++ String literal.  Keep the
+# following JSON keys in that literal before switching back to +String(...).
+extra=(needle+'\\\"tls15o_version\\\":\\\""+String(TLS15O_VERSION)+"\\\",\\\"tls15o_cert_identity\\\":["+\n'
+       + '+\n'.join(rows) + '+",')
 if '\\"tls15o_version\\"' not in s:
     if needle not in s: raise SystemExit('15O JSON anchor missing')
     s=s.replace(needle,extra,1)
