@@ -37,8 +37,15 @@ jobs:
           grep -F 'extra_scripts = pre:tools/platformio_tls15j_framework_patch.py' platformio.ini
       - name: Python syntax
         run: python -m py_compile tools/*.py
+      - name: Resolve PlatformIO packages before 15J framework patch
+        run: |
+          set -euo pipefail
+          pio pkg install -e lilygo_tcan485
+          test -f "$HOME/.platformio/packages/framework-arduinoespressif32/libraries/WiFiClientSecure/src/ssl_client.cpp"
+          echo '15J framework package resolved before SCons extra script'
       - name: Clean and build firmware
         run: |
+          set -euo pipefail
           pio run -t clean
           pio run -e lilygo_tcan485
           pio run -e lilygo_tcan485_ota
