@@ -24,13 +24,19 @@ extra='''\nstatic std::atomic<int32_t> gTls15iLastError{0};\nstatic std::atomic<
 if anchor not in s: raise SystemExit('15I atomic anchor missing')
 if 'gTls15iLastError' not in s: s=s.replace(anchor,anchor+extra,1)
 
-# Existing code already captures the secure-client error after GET. Attach the
-# classification to the canonical last-error read, if present.
-needle='const int tlsErr = client.lastError(tlsErrBuf, sizeof(tlsErrBuf));'
-if needle not in s:
-    needle='int tlsErr = client.lastError(tlsErrBuf, sizeof(tlsErrBuf));'
-if needle not in s: raise SystemExit('15I client.lastError anchor missing')
-add='''\n  gTls15iLastError.store(tlsErr,std::memory_order_relaxed);\n  gTls15iX509VerifyFailed.store(tlsErr==-0x2700 || tlsErr==-9984,std::memory_order_relaxed);'''
+# Anchor to the canonical WiFiClientSecure::lastError read in the transport
+# failure path. 15D currently names these tlsCode/tlsReason. Keep the older
+# tlsErr spelling as compatibility only so the patch remains deterministic
+# across the immediately preceding diagnostic revisions.
+needles=[
+    'const int tlsCode=client.lastError(tlsReason,sizeof(tlsReason));',
+    'const int tlsErr = client.lastError(tlsErrBuf, sizeof(tlsErrBuf));',
+    'int tlsErr = client.lastError(tlsErrBuf, sizeof(tlsErrBuf));',
+]
+needle=next((n for n in needles if n in s),None)
+if needle is None: raise SystemExit('15I client.lastError anchor missing')
+var='tlsCode' if 'tlsCode=' in needle else 'tlsErr'
+add=f'''\n    gTls15iLastError.store({var},std::memory_order_relaxed);\n    gTls15iX509VerifyFailed.store({var}==-0x2700 || {var}==-9984,std::memory_order_relaxed);'''
 if 'gTls15iLastError.store' not in s: s=s.replace(needle,needle+add,1)
 
 json_anchor='\\"tls_epoch_pre\\":"+String((long long)gTlsEpochPre.load())'
