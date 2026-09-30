@@ -48,15 +48,32 @@ for required in ('MBEDTLS_SSL_VERIFY_REQUIRED','mbedtls_pk_verify_ext','tls15p_d
 hdr.write_text(h,encoding='utf-8'); cpp.write_text(s,encoding='utf-8')
 
 # Expose proof values through the already-used /api/powerstream/job JSON.
-# The prior 15J/O scripts patch this project source during the same pre-script chain.
+# 15O builds this expression from String fragments, so do not depend on one
+# escaped literal representation of tls15o_version.  Anchor on the stable
+# TLS15O_VERSION expression emitted by apply_tls15o_runtime_patch.py.
 proj=Path(env['PROJECT_DIR'])/'src'/'powerstream_api.cpp'
 p=proj.read_text(encoding='utf-8')
 if '#include <WiFiClientSecure.h>' not in p: raise RuntimeError('15P project anchor missing')
 if 'tls15p_direct_sig_rc' not in p:
     p=p.replace('#include <WiFiClientSecure.h>','#include <WiFiClientSecure.h>\nextern int tls15p_get_direct_sig_rc(int depth);',1)
-    anchor=',\\\"tls15o_version\\\":\\\"9.36.7.15O-CERT-IDENTITY-CRYPTO\\\"'
-    if anchor not in p: raise RuntimeError('15P JSON anchor missing after 15O patch')
-    insert=',\\\"tls15p_version\\\":\\\"9.36.7.15P-DIRECT-SIG-PROOF\\\",\\\"tls15p_direct_sig_rc\\\":['+'+String(tls15p_get_direct_sig_rc(0))+","+String(tls15p_get_direct_sig_rc(1))+","+String(tls15p_get_direct_sig_rc(2))+","+String(tls15p_get_direct_sig_rc(3))+"],"+'
-    p=p.replace(anchor,insert+anchor,1)
+    marker='String(TLS15O_VERSION)'
+    marker_pos=p.find(marker)
+    if marker_pos < 0: raise RuntimeError('15P JSON anchor missing after 15O patch: TLS15O_VERSION expression absent')
+    # Locate the beginning of the C++ String fragment that owns tls15o_version.
+    anchor_pos=p.rfind('String("',0,marker_pos)
+    if anchor_pos < 0: raise RuntimeError('15P JSON anchor missing after 15O patch: String fragment absent')
+    # Sanity-check that this is specifically the 15O version field, not an
+    # unrelated String expression.
+    context=p[anchor_pos:marker_pos]
+    if 'tls15o_version' not in context:
+        raise RuntimeError('15P JSON anchor ambiguous: TLS15O_VERSION is not in tls15o_version field')
+    insert='String("\\\"tls15p_version\\\":\\\"9.36.7.15P-DIRECT-SIG-PROOF\\\",\\\"tls15p_direct_sig_rc\\\":[")+String(tls15p_get_direct_sig_rc(0))+","+String(tls15p_get_direct_sig_rc(1))+","+String(tls15p_get_direct_sig_rc(2))+","+String(tls15p_get_direct_sig_rc(3))+"],"+'
+    p=p[:anchor_pos]+insert+p[anchor_pos:]
+# Idempotence/invariant gate: exactly one telemetry field and the 15O field
+# must remain present after patching.
+if p.count('tls15p_version') != 1 or p.count('tls15p_direct_sig_rc') != 1:
+    raise RuntimeError('15P JSON telemetry invariant failed')
+if 'tls15o_version' not in p or 'TLS15O_VERSION' not in p:
+    raise RuntimeError('15P damaged 15O JSON telemetry')
 proj.write_text(p,encoding='utf-8')
-print('15P direct signature proof + job JSON telemetry installed; setCACert/rootCABuff remains VERIFY_REQUIRED')
+print('15P direct signature proof + robust job JSON telemetry installed; setCACert/rootCABuff remains VERIFY_REQUIRED')
