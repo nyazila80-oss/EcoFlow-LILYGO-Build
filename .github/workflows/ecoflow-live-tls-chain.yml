@@ -1,0 +1,75 @@
+name: EcoFlow live TLS chain diagnostic
+
+on:
+  push:
+    branches:
+      - diag/ecoflow-live-tls-chain-v3
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tls-chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Versions
+        run: |
+          openssl version -a
+          python3 --version
+      - name: DNS
+        run: |
+          getent ahosts api-e.ecoflow.com | head -20
+      - name: Verified TLS handshake and certificate chain
+        shell: bash
+        run: |
+          set -o pipefail
+          echo | openssl s_client \
+            -connect api-e.ecoflow.com:443 \
+            -servername api-e.ecoflow.com \
+            -showcerts \
+            -verify_return_error \
+            -verify_hostname api-e.ecoflow.com \
+            2>&1 | tee ecoflow_tls.txt
+      - name: Extract leaf certificate
+        shell: bash
+        run: |
+          awk 'BEGIN{n=0} /-----BEGIN CERTIFICATE-----/{n++} n==1{print} /-----END CERTIFICATE-----/ && n==1{exit}' ecoflow_tls.txt > leaf.pem
+          test -s leaf.pem
+          openssl x509 -in leaf.pem -noout \
+            -subject -issuer -serial -dates -fingerprint -sha256 \
+            -ext subjectAltName \
+            -ext authorityKeyIdentifier \
+            -ext subjectKeyIdentifier | tee leaf_details.txt
+      - name: Python system trust-store verification
+        shell: bash
+        run: |
+          python3 - <<'PY' | tee python_tls.txt
+          import hashlib, socket, ssl
+          host='api-e.ecoflow.com'
+          ctx=ssl.create_default_context()
+          with socket.create_connection((host,443), timeout=10) as raw:
+              with ctx.wrap_socket(raw, server_hostname=host) as s:
+                  der=s.getpeercert(binary_form=True)
+                  cert=s.getpeercert()
+                  print('verified=True')
+                  print('tls_version='+str(s.version()))
+                  print('cipher='+str(s.cipher()))
+                  print('subject='+str(cert.get('subject')))
+                  print('issuer='+str(cert.get('issuer')))
+                  print('notBefore='+str(cert.get('notBefore')))
+                  print('notAfter='+str(cert.get('notAfter')))
+                  print('subjectAltName='+str(cert.get('subjectAltName')))
+                  print('leaf_sha256='+hashlib.sha256(der).hexdigest())
+          PY
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          echo '=== OpenSSL verify summary ==='
+          grep -E 'depth=|verify error|Verify return code|Verification error|subject=|issuer=' ecoflow_tls.txt || true
+          echo '=== Leaf ==='
+          cat leaf_details.txt 2>/dev/null || true
+          echo '=== Python ==='
+          cat python_tls.txt 2>/dev/null || true
