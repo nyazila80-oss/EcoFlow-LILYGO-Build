@@ -17,8 +17,12 @@ if 's_tls15n_verify_info' not in s:
 old='''        if (flags != NULL) s_tls15m_depth_flags[depth] |= *flags;\n        if (crt != NULL) {\n            mbedtls_x509_dn_gets(s_tls15m_subject[depth], sizeof(s_tls15m_subject[depth]), &crt->subject);\n            mbedtls_x509_dn_gets(s_tls15m_issuer[depth], sizeof(s_tls15m_issuer[depth]), &crt->issuer);\n        }'''
 new='''        if (flags != NULL) {\n            s_tls15m_depth_flags[depth] |= *flags;\n            s_tls15n_verify_info[depth][0]='\\0';\n            mbedtls_x509_crt_verify_info(s_tls15n_verify_info[depth], sizeof(s_tls15n_verify_info[depth]), "", *flags);\n        }\n        if (crt != NULL) {\n            mbedtls_x509_dn_gets(s_tls15m_subject[depth], sizeof(s_tls15m_subject[depth]), &crt->subject);\n            mbedtls_x509_dn_gets(s_tls15m_issuer[depth], sizeof(s_tls15m_issuer[depth]), &crt->issuer);\n            s_tls15n_raw_len[depth]=crt->raw.len;\n        }'''
 if new not in s:
-    if old not in s: raise RuntimeError('15N callback anchor missing')
-    s=s.replace(old,new,1)
+    if old in s:
+        s=s.replace(old,new,1)
+    elif all(t in s for t in ('s_tls15n_verify_info','s_tls15n_raw_len','mbedtls_x509_crt_verify_info')):
+        print('15N callback already instrumented; preserving existing verify-detail probe')
+    else:
+        raise RuntimeError('15N callback anchor missing and installed 15N state incomplete')
 r='''        s_tls15m_depth_flags[i]=0; s_tls15m_subject[i][0]='\\0'; s_tls15m_issuer[i][0]='\\0';'''
 rn='''        s_tls15m_depth_flags[i]=0; s_tls15m_subject[i][0]='\\0'; s_tls15m_issuer[i][0]='\\0'; s_tls15n_verify_info[i][0]='\\0'; s_tls15n_raw_len[i]=0;'''
 if rn not in s:
@@ -27,4 +31,4 @@ if rn not in s:
 for t in ('MBEDTLS_SSL_VERIFY_REQUIRED','mbedtls_x509_crt_verify_info','s_tls15n_raw_len'):
     if t not in s: raise RuntimeError('15N invariant missing: '+t)
 hdr.write_text(h,encoding='utf-8'); cpp.write_text(s,encoding='utf-8')
-print('15N verify-detail probe installed; verification remains fail-closed')
+print('15N verify-detail probe installed/idempotent; verification remains fail-closed')
