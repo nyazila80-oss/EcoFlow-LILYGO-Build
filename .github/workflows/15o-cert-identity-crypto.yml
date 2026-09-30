@@ -1,0 +1,73 @@
+name: 15O Cert Identity Crypto
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  build15o:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Install PlatformIO
+        run: python -m pip install --upgrade platformio
+      - name: Apply canonical 15O diagnostic chain
+        run: |
+          set -euo pipefail
+          python tools/run_tls15o_patch.py
+          grep -F '9.36.7.15O-CERT-IDENTITY-CRYPTO' src/powerstream_api.cpp
+          grep -F 'tls15o_cert_identity' src/powerstream_api.cpp
+          grep -F 'client.setCACert(ECOFLOW_CA_BUNDLE);' src/powerstream_api.cpp
+          if grep -Fq 'MIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSj' src/powerstream_api.cpp; then exit 1; fi
+          if grep -Ev '^[[:space:]]*(//|/\*|\*|#)' src/powerstream_api.cpp | grep -Eq '(^|[^[:alnum:]_])setInsecure[[:space:]]*\('; then exit 1; fi
+      - name: Source provenance
+        run: |
+          set -euo pipefail
+          grep -F '#define FW_VERSION "2.4.5.9.36.7.15O-CERT-IDENTITY-CRYPTO"' include/config.h
+          test "$(tr -d '\r\n' < data/fs_version.txt)" = '2.4.5.9.36.7.15O-CERT-IDENTITY-CRYPTO'
+          grep -F 'pre:tools/platformio_tls15o_cert_identity.py' platformio.ini
+          python -m py_compile tools/*.py
+      - name: Resolve packages
+        run: pio pkg install -e lilygo_tcan485
+      - name: Full clean build firmware OTA and SPIFFS
+        run: |
+          set -euo pipefail
+          pio run -t clean
+          pio run -e lilygo_tcan485
+          SSL="$HOME/.platformio/packages/framework-arduinoespressif32/libraries/WiFiClientSecure/src/ssl_client.cpp"
+          grep -F 'MBEDTLS_SSL_VERIFY_REQUIRED' "$SSL"
+          grep -F 'mbedtls_x509_crt_verify_info' "$SSL"
+          grep -F 'tls15o_parse_key_ids' "$SSL"
+          grep -F 'crt->v3_ext' "$SSL"
+          grep -F 'crt->serial' "$SSL"
+          if grep -Fq 'crt->subject_key_id' "$SSL"; then exit 1; fi
+          if grep -Fq 'authority_key_id.keyIdentifier' "$SSL"; then exit 1; fi
+          pio run -e lilygo_tcan485_ota
+          pio run -e lilygo_tcan485 -t buildfs
+          pio run -e lilygo_tcan485_ota -t buildfs
+      - name: Binary provenance
+        run: |
+          set -euo pipefail
+          for env in lilygo_tcan485 lilygo_tcan485_ota; do
+            fw=.pio/build/$env/firmware.bin; fs=.pio/build/$env/spiffs.bin
+            test -s "$fw"; test -s "$fs"
+            grep -aFq '9.36.7.15O-CERT-IDENTITY-CRYPTO' "$fw"
+            grep -aFq 'tls15o_cert_identity' "$fw"
+            grep -aFq '2.4.5.9.36.7.15O-CERT-IDENTITY-CRYPTO' "$fs"
+            if grep -aFq 'MIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSj' "$fw"; then exit 1; fi
+          done
+          cmp -s .pio/build/lilygo_tcan485/spiffs.bin .pio/build/lilygo_tcan485_ota/spiffs.bin
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts/lilygo_tcan485 artifacts/lilygo_tcan485_ota
+          for env in lilygo_tcan485 lilygo_tcan485_ota; do cp .pio/build/$env/firmware.bin artifacts/$env/; cp .pio/build/$env/spiffs.bin artifacts/$env/; done
+          cp data/fs_version.txt artifacts/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EcoFlow-LILYGO-15O-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14
