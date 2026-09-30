@@ -16,18 +16,11 @@ if executable_set_insecure(s): raise SystemExit('15I security regression: execut
 if 'client.setCACert(ECOFLOW_CA_BUNDLE);' not in s: raise SystemExit('15I CA anchor missing')
 if 'gTlsEpochPre' not in s or 'gTlsInternalPostVerifyLargest' not in s: raise SystemExit('15I requires 15H first')
 
-# Runtime provenance visible in /status JSON. The Arduino TLS layer owns the
-# mbedTLS ssl context, so this patch records the exact secure-client error and
-# classifies the observed X509 failure without inventing a second verifier.
 anchor='static std::atomic<uint32_t> gTlsInternalPostVerifyFree{0};\nstatic std::atomic<uint32_t> gTlsInternalPostVerifyLargest{0};'
 extra='''\nstatic std::atomic<int32_t> gTls15iLastError{0};\nstatic std::atomic<bool> gTls15iX509VerifyFailed{false};\nstatic std::atomic<bool> gTls15iCaVerificationEnabled{true};\nstatic const char* TLS15I_VERSION="9.36.7.15I-X509-ROOTCAUSE";\n'''
 if anchor not in s: raise SystemExit('15I atomic anchor missing')
 if 'gTls15iLastError' not in s: s=s.replace(anchor,anchor+extra,1)
 
-# Anchor to the canonical WiFiClientSecure::lastError read in the transport
-# failure path. 15D currently names these tlsCode/tlsReason. Keep the older
-# tlsErr spelling as compatibility only so the patch remains deterministic
-# across the immediately preceding diagnostic revisions.
 needles=[
     'const int tlsCode=client.lastError(tlsReason,sizeof(tlsReason));',
     'const int tlsErr = client.lastError(tlsErrBuf, sizeof(tlsErrBuf));',
@@ -41,7 +34,10 @@ if 'gTls15iLastError.store' not in s: s=s.replace(needle,needle+add,1)
 
 json_anchor='\\"tls_epoch_pre\\":"+String((long long)gTlsEpochPre.load())'
 if json_anchor not in s: raise SystemExit('15I JSON anchor missing')
-fields='''\\"tls15i_version\\":\\\""+String(TLS15I_VERSION)+"\\\",\\"tls15i_last_error\\":"+String(gTls15iLastError.load())+",\\"tls15i_x509_verify_failed\\":"+(gTls15iX509VerifyFailed.load()?"true":"false")+",\\"tls15i_ca_verification_enabled\\":"+(gTls15iCaVerificationEnabled.load()?"true":"false")+","+'''
+# IMPORTANT: fields is inserted inside an existing C++ string-concatenation
+# expression.  The separator before tls_epoch_pre therefore belongs inside
+# the generated C++ string literal; do not emit a raw escaped quote token.
+fields='''\\"tls15i_version\\":\\\""+String(TLS15I_VERSION)+"\\\",\\"tls15i_last_error\\":"+String(gTls15iLastError.load())+",\\"tls15i_x509_verify_failed\\":"+(gTls15iX509VerifyFailed.load()?"true":"false")+",\\"tls15i_ca_verification_enabled\\":"+(gTls15iCaVerificationEnabled.load()?"true":"false")+",'''
 if '\\"tls15i_version\\"' not in s: s=s.replace(json_anchor,fields+json_anchor,1)
 
 required=['TLS15I_VERSION','gTls15iLastError.store','tls15i_x509_verify_failed','client.setCACert(ECOFLOW_CA_BUNDLE);']
