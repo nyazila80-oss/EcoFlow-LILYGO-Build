@@ -2,7 +2,11 @@
 from pathlib import Path
 p=Path('src/powerstream_api.cpp'); s=p.read_text(encoding='utf-8')
 if 'tls15j_verify_flags_raw' not in s: raise SystemExit('15L requires 15J runtime telemetry')
-if 'DigiCert Global Root CA' not in s: raise SystemExit('15L requires 15K trust-store baseline')
+# 15K embeds the DigiCert Global Root CA as PEM. The source contains base64,
+# not the human-readable certificate CN, so prove the exact anchor by a stable
+# prefix from that PEM (the same invariant used by run_tls15k_patch.py).
+if 'MIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSj' not in s: raise SystemExit('15L requires 15K DigiCert Global Root CA anchor')
+if 'DigiCert Global Root G2' not in s: raise SystemExit('15L requires existing DigiCert Global Root G2 anchor')
 
 decl='''\nextern uint32_t tls15l_get_depth_flags(int depth);\nextern const char* tls15l_get_subject(int depth);\nextern const char* tls15l_get_issuer(int depth);\n'''
 anchor='extern int tls15j_get_verify_depth(void);\n'
@@ -30,6 +34,6 @@ s=s.replace('9.36.7.15K-ECOFLOW-TRUST-CHAIN','9.36.7.15L-CERT-CHAIN-PROBE')
 p.write_text(s,encoding='utf-8')
 cfg=Path('include/config.h'); c=cfg.read_text(encoding='utf-8').replace('2.4.5.9.36.7.15K-ECOFLOW-TRUST-CHAIN','2.4.5.9.36.7.15L-CERT-CHAIN-PROBE'); cfg.write_text(c,encoding='utf-8')
 Path('data/fs_version.txt').write_text('2.4.5.9.36.7.15L-CERT-CHAIN-PROBE\n',encoding='utf-8')
-for t in ('tls15l_chain','tls15l_get_depth_flags','client.setCACert(ECOFLOW_CA_BUNDLE);'):
+for t in ('tls15l_chain','tls15l_get_depth_flags','client.setCACert(ECOFLOW_CA_BUNDLE);','MIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSj','DigiCert Global Root G2'):
     if t not in s: raise SystemExit('15L invariant missing: '+t)
-print('15L runtime chain telemetry applied; 15K trust store retained')
+print('15L runtime chain telemetry applied; exact 15K trust anchors retained')
