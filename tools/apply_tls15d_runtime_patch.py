@@ -72,5 +72,5 @@ rep(needle, insert, 'status json')
 
 p.write_text(s, encoding='utf-8')
 print('15D runtime patch applied deterministically')
-# On the 15E branch, layer the allocator-failure probe only after the proven 15D transform.
 runpy.run_path('tools/apply_tls15e_failed_alloc_patch.py', run_name='__main__')
+runpy.run_path('tools/apply_tls15g_buffer_fix.py', run_name='__main__')
