@@ -17,7 +17,10 @@ for token in required_patch:
     if token not in patch: raise SystemExit('15H audit missing token: '+token)
 if "runpy.run_path('tools/apply_tls15h_x509_diag_patch.py'" not in chain:
     raise SystemExit('15H patch is not chained into deterministic build')
-if 'setInsecure() is forbidden' not in fmea:
+# The FMEA document formats setInsecure() as inline Markdown code.  Check the
+# documented safety rule exactly as written instead of a formatting-stripped
+# variant that can never match the source document.
+if '`setInsecure()` is forbidden.' not in fmea:
     raise SystemExit('15H FMEA security gate missing')
 # The patch may mention setInsecure only in its guard/comment; it must never add a call.
 if "client.setInsecure(" in patch:
