@@ -1,9 +1,15 @@
 import random
+import re
 from pathlib import Path
 ROOT=Path(__file__).resolve().parent
 src=(ROOT/'src/jk_ble_proxy.cpp').read_text()
 cfg=(ROOT/'include/config.h').read_text()
-assert '2.4.5.9.36.7.11-AUDIT20.4.5.9.36.7.11-SECURITY-HARDENED-DIAG' in cfg
+# This regression protects the two-stage BLE write gate, not one historical
+# diagnostic label. Keep the maintained firmware-family gate while preserving
+# the exact implementation assertions below.
+m=re.search(r'^\s*#define\s+FW_VERSION\s+"([^"]+)"\s*$', cfg, re.M)
+fw_version=m.group(1) if m else ''
+assert fw_version.startswith('2.4.5.9.36.7.'), f'unexpected firmware family: {fw_version!r}'
 assert 'sClient && sClient->isConnected() && sRemoteChar && takePacket' in src
 assert '!sClient || !sClient->isConnected() || !sRemoteChar' in src
 # Model the two-stage gate around dequeue/write. A disconnect may occur at any
@@ -31,6 +37,6 @@ for _ in range(N):
         continue
     writes+=1
     if not remote: viol+=1
-print(f'events={N} disconnects={disconnects} writes_started={writes} fail_closed={blocked} violations={viol}')
+print(f'firmware={fw_version} events={N} disconnects={disconnects} writes_started={writes} fail_closed={blocked} violations={viol}')
 assert viol==0
 print('PASS')

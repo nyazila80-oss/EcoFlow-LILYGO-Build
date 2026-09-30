@@ -1,0 +1,90 @@
+name: 15M Clean Certificate Chain Probe
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build15m:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PlatformIO
+        run: python -m pip install --upgrade platformio
+      - name: Apply clean 15M chain
+        run: |
+          set -euo pipefail
+          python tools/run_tls15m_patch.py
+          grep -F '9.36.7.15M-CLEAN-CHAIN-PROBE' src/powerstream_api.cpp
+          grep -F 'tls15m_chain' src/powerstream_api.cpp
+          grep -F 'DigiCert Global Root G2' src/powerstream_api.cpp
+          grep -F 'client.setCACert(ECOFLOW_CA_BUNDLE);' src/powerstream_api.cpp
+          if grep -Fq 'MIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSj' src/powerstream_api.cpp; then
+            echo 'ERROR: 15K/15L extra trust anchor contaminated clean 15M'; exit 1
+          fi
+          if grep -Ev '^[[:space:]]*(//|/\*|\*|#)' src/powerstream_api.cpp | grep -Eq '(^|[^[:alnum:]_])setInsecure[[:space:]]*\('; then
+            echo 'ERROR: executable setInsecure() detected'; exit 1
+          fi
+      - name: Provenance source gate
+        run: |
+          set -euo pipefail
+          grep -F '#define FW_VERSION "2.4.5.9.36.7.15M-CLEAN-CHAIN-PROBE"' include/config.h
+          test "$(tr -d '\r\n' < data/fs_version.txt)" = '2.4.5.9.36.7.15M-CLEAN-CHAIN-PROBE'
+          grep -F 'pre:tools/platformio_tls15j_framework_patch.py' platformio.ini
+          grep -F 'pre:tools/platformio_tls15m_chain_probe.py' platformio.ini
+          test -s tools/platformio_tls15m_chain_probe.py
+      - name: Python syntax
+        run: python -m py_compile tools/*.py
+      - name: Resolve PlatformIO packages
+        run: pio pkg install -e lilygo_tcan485
+      - name: Full clean and build firmware plus SPIFFS
+        run: |
+          set -euo pipefail
+          pio run -t clean
+          pio run -e lilygo_tcan485
+          SSL="$HOME/.platformio/packages/framework-arduinoespressif32/libraries/WiFiClientSecure/src/ssl_client.cpp"
+          grep -F 'MBEDTLS_SSL_VERIFY_REQUIRED' "$SSL"
+          grep -F 'mbedtls_ssl_conf_verify(&ssl_client->ssl_conf, tls15j_verify_cb, NULL);' "$SSL"
+          grep -F 's_tls15m_depth_flags' "$SSL"
+          grep -F 'mbedtls_x509_dn_gets' "$SSL"
+          pio run -e lilygo_tcan485_ota
+          pio run -e lilygo_tcan485 -t buildfs
+          pio run -e lilygo_tcan485_ota -t buildfs
+      - name: Binary provenance and contamination gate
+        run: |
+          set -euo pipefail
+          for env in lilygo_tcan485 lilygo_tcan485_ota; do
+            fw=.pio/build/$env/firmware.bin
+            fs=.pio/build/$env/spiffs.bin
+            test -s "$fw"; test -s "$fs"
+            grep -aFq '9.36.7.15M-CLEAN-CHAIN-PROBE' "$fw"
+            grep -aFq 'tls15m_chain' "$fw"
+            grep -aFq 'DigiCert Global Root G2' "$fw"
+            grep -aFq '2.4.5.9.36.7.15M-CLEAN-CHAIN-PROBE' "$fs"
+            if grep -aFq 'MIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSj' "$fw"; then
+              echo "ERROR: experimental 15K/15L trust anchor present in $env firmware"; exit 1
+            fi
+          done
+          cmp -s .pio/build/lilygo_tcan485/spiffs.bin .pio/build/lilygo_tcan485_ota/spiffs.bin
+          echo '15M clean binary provenance PASS'
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts/lilygo_tcan485 artifacts/lilygo_tcan485_ota
+          for env in lilygo_tcan485 lilygo_tcan485_ota; do
+            cp .pio/build/$env/firmware.bin artifacts/$env/
+            cp .pio/build/$env/spiffs.bin artifacts/$env/
+          done
+          cp data/fs_version.txt artifacts/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EcoFlow-LILYGO-15M-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14
