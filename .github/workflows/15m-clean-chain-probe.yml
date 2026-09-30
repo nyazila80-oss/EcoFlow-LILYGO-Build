@@ -26,7 +26,6 @@ jobs:
           grep -F 'tls15m_chain' src/powerstream_api.cpp
           grep -F 'DigiCert Global Root G2' src/powerstream_api.cpp
           grep -F 'client.setCACert(ECOFLOW_CA_BUNDLE);' src/powerstream_api.cpp
-          # 15M must not contain the experimental additional 15K/15L trust anchor.
           if grep -Fq 'MIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSj' src/powerstream_api.cpp; then
             echo 'ERROR: 15K/15L extra trust anchor contaminated clean 15M'; exit 1
           fi
@@ -39,7 +38,8 @@ jobs:
           grep -F '#define FW_VERSION "2.4.5.9.36.7.15M-CLEAN-CHAIN-PROBE"' include/config.h
           test "$(tr -d '\r\n' < data/fs_version.txt)" = '2.4.5.9.36.7.15M-CLEAN-CHAIN-PROBE'
           grep -F 'pre:tools/platformio_tls15j_framework_patch.py' platformio.ini
-          grep -F 'pre:tools/platformio_tls15m_chain_patch.py' platformio.ini
+          grep -F 'pre:tools/platformio_tls15m_chain_probe.py' platformio.ini
+          test -s tools/platformio_tls15m_chain_probe.py
       - name: Python syntax
         run: python -m py_compile tools/*.py
       - name: Resolve PlatformIO packages
