@@ -2,9 +2,6 @@
 from pathlib import Path
 p=Path('src/powerstream_api.cpp'); s=p.read_text(encoding='utf-8')
 if 'tls15j_verify_flags_raw' not in s: raise SystemExit('15L requires 15J runtime telemetry')
-# 15K embeds the DigiCert Global Root CA as PEM. The source contains base64,
-# not the human-readable certificate CN, so prove the exact anchor by a stable
-# prefix from that PEM (the same invariant used by run_tls15k_patch.py).
 if 'MIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSj' not in s: raise SystemExit('15L requires 15K DigiCert Global Root CA anchor')
 if 'DigiCert Global Root G2' not in s: raise SystemExit('15L requires existing DigiCert Global Root G2 anchor')
 
@@ -14,11 +11,13 @@ if 'tls15l_get_depth_flags' not in s:
     if anchor not in s: raise SystemExit('15L declaration anchor missing')
     s=s.replace(anchor,anchor+decl,1)
 
-# JSON-safe copy of framework strings; keep telemetry bounded.
 helper='''\nstatic String tls15lJsonEscape(const char* in){\n  String o; if(!in) return o;\n  for(size_t i=0; in[i] && i<191; ++i){ char c=in[i];\n    if(c=='\\\\' || c=='\\"'){ o+='\\\\'; o+=c; }\n    else if((unsigned char)c>=0x20) o+=c;\n  }\n  return o;\n}\n'''
-anchor='static const char* TLS15J_VERSION="9.36.7.15J-X509-VERIFY-FLAGS";\n'
+# run_tls15k_patch.py intentionally transforms the 15J version string to 15K
+# before this patch runs. Keep the variable name (used by existing JSON) and
+# anchor on the actual post-15K value.
+anchor='static const char* TLS15J_VERSION="9.36.7.15K-ECOFLOW-TRUST-CHAIN";\n'
 if 'tls15lJsonEscape' not in s:
-    if anchor not in s: raise SystemExit('15L version anchor missing')
+    if anchor not in s: raise SystemExit('15L post-15K version anchor missing')
     s=s.replace(anchor,anchor+'static const char* TLS15L_VERSION="9.36.7.15L-CERT-CHAIN-PROBE";\n'+helper,1)
 
 json_anchor='\\"tls15j_version\\":\\\""+String(TLS15J_VERSION)+"\\\",'
