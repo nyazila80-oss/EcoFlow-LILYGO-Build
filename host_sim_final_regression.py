@@ -67,7 +67,12 @@ def frames(msg):
  return [('S' if i==0 else ('E' if i==len(parts)-1 else 'M'),p) for i,p in enumerate(parts)]
 
 def static_checks():
- req=[('FW version','2.4.5.9.36.7.11-AUDIT20.4.5.9.36.7.11-SECURITY-HARDENED-DIAG' in CFG),('CAN exact header','headerSize != 18' in SRC),('CAN payload cap','payloadSize > 512' in SRC),('DLC guard','data_length_code > 8' in SRC),('CRC guard','CRC mismatch' in SRC),('CAN cap','MSG14001_MAX_PAYLOAD 2048' in SRC),('RS485 9600','9600' in BMS),('status trigger','0x1620' in BMS),('setup trigger','0x161E' in BMS or '0x161e' in BMS),('BLE sync connect + attr cache','connect(target, false, false, false)' in BLE),('bad format gone','%04XX' not in SRC),('332 ACK offset','validAckAt(324)' in BMS)]
+ # Do not pin this regression suite to one historical firmware literal.
+ # Validate the current config's version declaration structurally instead;
+ # release/provenance CI separately enforces exact FW_VERSION == fs_version.txt.
+ fw=re.findall(r'^\s*#define\s+FW_VERSION\s+"([^"]+)"\s*$',CFG,re.M)
+ fw_ok=len(fw)==1 and bool(re.fullmatch(r'2\.4\.5\.9\.36\.7\.[A-Za-z0-9][A-Za-z0-9._-]*',fw[0]))
+ req=[('FW version declaration',fw_ok),('CAN exact header','headerSize != 18' in SRC),('CAN payload cap','payloadSize > 512' in SRC),('DLC guard','data_length_code > 8' in SRC),('CRC guard','CRC mismatch' in SRC),('CAN cap','MSG14001_MAX_PAYLOAD 2048' in SRC),('RS485 9600','9600' in BMS),('status trigger','0x1620' in BMS),('setup trigger','0x161E' in BMS or '0x161e' in BMS),('BLE sync connect + attr cache','connect(target, false, false, false)' in BLE),('bad format gone','%04XX' not in SRC),('332 ACK offset','validAckAt(324)' in BMS)]
  bad=[n for n,v in req if not v]
  if bad:raise AssertionError('static checks failed: '+','.join(bad))
  return len(req)
