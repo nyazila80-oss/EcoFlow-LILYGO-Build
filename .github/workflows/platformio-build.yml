@@ -29,6 +29,21 @@ jobs:
       - name: PlatformIO version
         run: pio --version
 
+      - name: Bootstrap pinned PlatformIO platform/framework
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 15J patches the Arduino-ESP32 WiFiClientSecure framework during SCons
+          # pre-processing.  A pristine GitHub runner has no framework package yet,
+          # so install the pinned platform (and therefore its framework dependency)
+          # before any `pio run` target, including `clean`.
+          pio pkg install --global --platform 'espressif32@7.1.3'
+          FRAMEWORK_DIR="$HOME/.platformio/packages/framework-arduinoespressif32"
+          test -d "$FRAMEWORK_DIR/libraries/WiFiClientSecure/src"
+          test -s "$FRAMEWORK_DIR/libraries/WiFiClientSecure/src/ssl_client.h"
+          test -s "$FRAMEWORK_DIR/libraries/WiFiClientSecure/src/ssl_client.cpp"
+          echo "15J bootstrap framework ready: $FRAMEWORK_DIR"
+
       - name: Apply 15D runtime diagnostic patch
         shell: bash
         run: |
