@@ -13,11 +13,13 @@ a='static const char* TLS15M_VERSION="9.36.7.15M-CLEAN-CHAIN-PROBE";\n'
 if 'TLS15N_VERSION' not in s:
     if a not in s: raise SystemExit('15N version anchor missing')
     s=s.replace(a,a+'static const char* TLS15N_VERSION="9.36.7.15N-LEAF-VERIFY-ROOTCAUSE";\n',1)
-# Add compact per-depth decoded verify text and raw certificate lengths after the existing 15M chain.
-needle='\\"tls15j_ca_pem_bytes\\":"+String(strlen(ECOFLOW_CA_BUNDLE))+",'
-fields='''\\"tls15n_version\\":\\\""+String(TLS15N_VERSION)+"\\\",\\"tls15n_verify_detail\\":["+\n String("{\\\"depth\\\":0,\\\"raw_len\\\":")+String((unsigned)tls15n_get_cert_raw_len(0))+",\\\"info\\\":\\\""+tls15mJsonEscape(tls15n_get_verify_info(0))+"\\\"},"+\n String("{\\\"depth\\\":1,\\\"raw_len\\\":")+String((unsigned)tls15n_get_cert_raw_len(1))+",\\\"info\\\":\\\""+tls15mJsonEscape(tls15n_get_verify_info(1))+"\\\"},"+\n String("{\\\"depth\\\":2,\\\"raw_len\\\":")+String((unsigned)tls15n_get_cert_raw_len(2))+",\\\"info\\\":\\\""+tls15mJsonEscape(tls15n_get_verify_info(2))+"\\\"},"+\n String("{\\\"depth\\\":3,\\\"raw_len\\\":")+String((unsigned)tls15n_get_cert_raw_len(3))+",\\\"info\\\":\\\""+tls15mJsonEscape(tls15n_get_verify_info(3))+"\\\"}],'''
-if '\\"tls15n_version\\"' not in s:
+# Insert decoded verify text immediately before the existing CA PEM byte field.
+# The generated 15M source uses a normal C++ JSON fragment here; avoid matching
+# the Python source-code escaping used by the patch generator itself.
+needle='"tls15j_ca_pem_bytes":"+String(strlen(ECOFLOW_CA_BUNDLE))+",'
+fields='''"tls15n_version":"\\\""+String(TLS15N_VERSION)+"\\\",\\\"tls15n_verify_detail\\\":["+\n String("{\\\"depth\\\":0,\\\"raw_len\\\":")+String((unsigned)tls15n_get_cert_raw_len(0))+",\\\"info\\\":\\\""+tls15mJsonEscape(tls15n_get_verify_info(0))+"\\\"},"+\n String("{\\\"depth\\\":1,\\\"raw_len\\\":")+String((unsigned)tls15n_get_cert_raw_len(1))+",\\\"info\\\":\\\""+tls15mJsonEscape(tls15n_get_verify_info(1))+"\\\"},"+\n String("{\\\"depth\\\":2,\\\"raw_len\\\":")+String((unsigned)tls15n_get_cert_raw_len(2))+",\\\"info\\\":\\\""+tls15mJsonEscape(tls15n_get_verify_info(2))+"\\\"},"+\n String("{\\\"depth\\\":3,\\\"raw_len\\\":")+String((unsigned)tls15n_get_cert_raw_len(3))+",\\\"info\\\":\\\""+tls15mJsonEscape(tls15n_get_verify_info(3))+"\\\"}],\\\"tls15j_ca_pem_bytes\\\":"+String(strlen(ECOFLOW_CA_BUNDLE))+",'''
+if 'tls15n_verify_detail' not in s:
     if needle not in s: raise SystemExit('15N JSON anchor missing')
-    s=s.replace(needle,fields+needle,1)
+    s=s.replace(needle,fields,1)
 p.write_text(s,encoding='utf-8')
 print('15N runtime telemetry applied; trust and auth behavior unchanged')
