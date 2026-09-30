@@ -33,11 +33,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # `pio pkg install --global --platform` installs the platform/toolchain but
-          # not the Arduino framework package. Resolve the complete project env here;
-          # package installation does not execute the SCons extra_scripts.
+          # Resolve the complete pinned project environment before any SCons target.
+          # This installs the Arduino framework required by the 15J framework patch.
           pio pkg install -e lilygo_tcan485
-          FRAMEWORK_DIR="$(pio system info --json-output | python -c 'import json,sys; print(json.load(sys.stdin)["platformio_core_dir"])')/packages/framework-arduinoespressif32"
+          PLATFORMIO_CORE_DIR="${PLATFORMIO_CORE_DIR:-$HOME/.platformio}"
+          FRAMEWORK_DIR="$PLATFORMIO_CORE_DIR/packages/framework-arduinoespressif32"
           test -d "$FRAMEWORK_DIR/libraries/WiFiClientSecure/src"
           test -s "$FRAMEWORK_DIR/libraries/WiFiClientSecure/src/ssl_client.h"
           test -s "$FRAMEWORK_DIR/libraries/WiFiClientSecure/src/ssl_client.cpp"
