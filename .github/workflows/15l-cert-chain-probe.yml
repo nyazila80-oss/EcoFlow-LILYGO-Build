@@ -39,22 +39,22 @@ jobs:
           grep -F 'pre:tools/platformio_tls15l_chain_patch.py' platformio.ini
       - name: Python syntax
         run: python -m py_compile tools/*.py
-      - name: Resolve and PREPATCH 15J plus 15L framework instrumentation
+      - name: Resolve and PREPATCH 15J framework
         run: |
           set -euo pipefail
           pio pkg install -e lilygo_tcan485
           python tools/prepatch_tls15j_framework.py
-          python tools/platformio_tls15l_chain_patch.py
           SSL="$HOME/.platformio/packages/framework-arduinoespressif32/libraries/WiFiClientSecure/src/ssl_client.cpp"
           grep -F 'mbedtls_ssl_conf_verify(&ssl_client->ssl_conf, tls15j_verify_cb, NULL);' "$SSL"
           grep -F 'MBEDTLS_SSL_VERIFY_REQUIRED' "$SSL"
-          grep -F 's_tls15l_depth_flags' "$SSL"
-          grep -F 'mbedtls_x509_dn_gets' "$SSL"
-      - name: Clean and build firmware
+      - name: Clean and build firmware with 15L PlatformIO pre-script
         run: |
           set -euo pipefail
           pio run -t clean
           pio run -e lilygo_tcan485
+          SSL="$HOME/.platformio/packages/framework-arduinoespressif32/libraries/WiFiClientSecure/src/ssl_client.cpp"
+          grep -F 's_tls15l_depth_flags' "$SSL"
+          grep -F 'mbedtls_x509_dn_gets' "$SSL"
           pio run -e lilygo_tcan485_ota
           pio run -e lilygo_tcan485 -t buildfs
           pio run -e lilygo_tcan485_ota -t buildfs
