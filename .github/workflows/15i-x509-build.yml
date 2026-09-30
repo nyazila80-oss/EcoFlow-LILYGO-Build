@@ -25,7 +25,12 @@ jobs:
           grep -F 'TLS15I_VERSION="9.36.7.15I-X509-ROOTCAUSE"' src/powerstream_api.cpp
           grep -F 'tls15i_x509_verify_failed' src/powerstream_api.cpp
           grep -F 'client.setCACert(ECOFLOW_CA_BUNDLE);' src/powerstream_api.cpp
-          if grep -E '^[[:space:]]*[^/#].*setInsecure\(' src/powerstream_api.cpp; then exit 1; fi
+          # Safety gate: reject executable setInsecure() calls, but ignore comments.
+          if grep -Ev '^[[:space:]]*(//|/\*|\*|#)' src/powerstream_api.cpp | grep -Eq '(^|[^[:alnum:]_])setInsecure[[:space:]]*\('; then
+            echo 'ERROR: executable setInsecure() call detected'
+            exit 1
+          fi
+          echo 'TLS safety gate PASS: CA verification enabled, no executable setInsecure() call'
       - name: Provenance source gate
         run: |
           set -euo pipefail
