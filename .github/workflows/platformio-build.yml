@@ -29,6 +29,51 @@ jobs:
       - name: PlatformIO version
         run: pio --version
 
+      - name: Apply 15D runtime diagnostic patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/apply_tls15d_runtime_patch.py
+          grep -F 'cred_request_secret_match' src/powerstream_api.cpp
+          grep -F 'tls_internal_get_post_largest' src/powerstream_api.cpp
+
+      - name: 15F generated-source regression gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          s = Path('src/powerstream_api.cpp').read_text(encoding='utf-8')
+          required = [
+              'String(gTlsInternalGetPostLargest.load())+',
+              '\\"tls_failed_alloc_count\\":"+String(gTlsFailedAllocCount.load())',
+              '\\"tls_failed_alloc_size\\":"+String(gTlsFailedAllocSize.load())',
+              '\\"tls_failed_alloc_caps\\":"+String(gTlsFailedAllocCaps.load())',
+              '\\"tls_failed_alloc_task\\":"+String(gTlsFailedAllocTask.load())',
+              '\\"tls_failed_caps_free\\":"+String(gTlsFailedCapsFree.load())',
+              '\\"tls_failed_caps_largest\\":"+String(gTlsFailedCapsLargest.load())',
+              '\\"tls_failed_internal_free\\":"+String(gTlsFailedInternalFree.load())',
+              '\\"tls_failed_internal_largest\\":"+String(gTlsFailedInternalLargest.load())',
+              '\\"tls_failed_8bit_free\\":"+String(gTlsFailed8BitFree.load())',
+              '\\"tls_failed_8bit_largest\\":"+String(gTlsFailed8BitLargest.load())',
+              '\\"tls_failed_dma_free\\":"+String(gTlsFailedDmaFree.load())',
+              '\\"tls_failed_dma_largest\\":"+String(gTlsFailedDmaLargest.load())',
+              '\\"tls_failed_32bit_free\\":"+String(gTlsFailed32BitFree.load())',
+              '\\"tls_failed_32bit_largest\\":"+String(gTlsFailed32BitLargest.load())',
+              '\\"tls_alloc_hook_rc\\":"+String(gTlsAllocHookRc.load())',
+              '\\"internal_free_pre\\":"+String(gTlsInternalFreePre.load())',
+          ]
+          positions=[]
+          for token in required:
+              pos=s.find(token)
+              if pos < 0: raise SystemExit(f'missing generated 15F status token: {token}')
+              positions.append(pos)
+          if positions != sorted(positions): raise SystemExit('15F generated status fields are not in expected order')
+          if 'heap_caps_get_largest_free_block(caps)' not in s: raise SystemExit('15F exact-cap largest probe missing')
+          if 'heap_caps_get_largest_free_block(MALLOC_CAP_DMA)' not in s: raise SystemExit('15F DMA probe missing')
+          print('15F generated-source regression gate PASS')
+          PY
+
       - name: Dependency and configuration gate
         shell: bash
         run: |
@@ -41,14 +86,31 @@ jobs:
           grep -F 'board_build.filesystem = spiffs' platformio.ini
           grep -F 'board_build.partitions = partitions.csv' platformio.ini
 
+      - name: SPIFFS firmware-version provenance gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s data/fs_version.txt
+          FW_VERSION="$(python - <<'PY'
+          import re
+          from pathlib import Path
+          text=Path('include/config.h').read_text(encoding='utf-8')
+          m=re.search(r'^\s*#define\s+FW_VERSION\s+"([^"]+)"\s*$',text,re.M)
+          if not m: raise SystemExit('FW_VERSION not found uniquely in include/config.h')
+          print(m.group(1))
+          PY
+          )"
+          FS_VERSION="$(tr -d '\r\n' < data/fs_version.txt)"
+          echo "Firmware version: $FW_VERSION"
+          echo "SPIFFS manifest: $FS_VERSION"
+          test -n "$FS_VERSION"
+          if [ "$FW_VERSION" != "$FS_VERSION" ]; then echo 'ERROR: data/fs_version.txt does not match FW_VERSION.'; exit 1; fi
+
       - name: Repository secret hygiene gate
         shell: bash
         run: |
           set -euo pipefail
-          if git grep -n -I -E '(AccessKey|SecretKey)[[:space:]]*[:=][[:space:]]*[A-Za-z0-9_+/=-]{12,}' -- ':!*.md' ':!*.txt'; then
-            echo 'Potential EcoFlow credential material found in tracked source files.'
-            exit 1
-          fi
+          if git grep -n -I -E '(AccessKey|SecretKey)[[:space:]]*[:=][[:space:]]*[A-Za-z0-9_+/=-]{12,}' -- ':!*.md' ':!*.txt'; then echo 'Potential EcoFlow credential material found.'; exit 1; fi
           echo 'No obvious EcoFlow AccessKey/SecretKey assignment found in tracked source files.'
 
       - name: Python syntax gate
@@ -56,37 +118,25 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -d '' pyfiles < <(find . -type f -name '*.py' -not -path './.pio/*' -not -path './.git/*' -print0)
-          if [ ${#pyfiles[@]} -gt 0 ]; then
-            python -m py_compile "${pyfiles[@]}"
-          fi
+          if [ ${#pyfiles[@]} -gt 0 ]; then python -m py_compile "${pyfiles[@]}"; fi
 
       - name: Host regression simulations
         shell: bash
         run: |
           set -euo pipefail
           mapfile -t sims < <(find . -maxdepth 2 -type f \( -name 'host_sim*.py' -o -name '*regression*.py' -o -name '*audit*.py' \) -not -path './.pio/*' -not -path './.git/*' | sort)
-          if [ ${#sims[@]} -eq 0 ]; then
-            echo 'No host regression simulation scripts found; gate is informational.'
-            exit 0
-          fi
+          if [ ${#sims[@]} -eq 0 ]; then echo 'No host regression simulation scripts found; gate is informational.'; exit 0; fi
           printf 'Running %s host simulation/regression scripts\n' "${#sims[@]}"
-          for sim in "${sims[@]}"; do
-            echo "===== $sim ====="
-            python "$sim"
-          done
+          for sim in "${sims[@]}"; do echo "===== $sim ====="; python "$sim"; done
 
       - name: Clean
         run: pio run -t clean
-
       - name: Build firmware - USB environment
         run: pio run -e lilygo_tcan485
-
       - name: Build firmware - OTA environment
         run: pio run -e lilygo_tcan485_ota
-
       - name: Build SPIFFS - USB environment
         run: pio run -e lilygo_tcan485 -t buildfs
-
       - name: Build SPIFFS - OTA environment
         run: pio run -e lilygo_tcan485_ota -t buildfs
 
@@ -94,12 +144,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          FW_VERSION="$(python - <<'PY'
+          import re
+          from pathlib import Path
+          text=Path('include/config.h').read_text(encoding='utf-8')
+          m=re.search(r'^\s*#define\s+FW_VERSION\s+"([^"]+)"\s*$',text,re.M)
+          if not m: raise SystemExit('FW_VERSION not found uniquely in include/config.h')
+          print(m.group(1))
+          PY
+          )"
           for env in lilygo_tcan485 lilygo_tcan485_ota; do
-            for f in firmware.bin spiffs.bin bootloader.bin partitions.bin; do
-              test -s ".pio/build/$env/$f"
-              echo "$env $f: $(stat -c%s ".pio/build/$env/$f") bytes"
-            done
+            for f in firmware.bin spiffs.bin bootloader.bin partitions.bin; do test -s ".pio/build/$env/$f"; echo "$env $f: $(stat -c%s ".pio/build/$env/$f") bytes"; done
+            grep -aFq 'fs_version.txt' ".pio/build/$env/spiffs.bin" || exit 1
+            grep -aFq "$FW_VERSION" ".pio/build/$env/spiffs.bin" || exit 1
           done
+          cmp -s .pio/build/lilygo_tcan485/spiffs.bin .pio/build/lilygo_tcan485_ota/spiffs.bin || exit 1
+          echo 'SPIFFS provenance OK.'
 
       - name: Collect build artifacts
         if: success()
@@ -113,22 +173,7 @@ jobs:
             cp ".pio/build/$env/bootloader.bin" "artifacts/$env/"
             cp ".pio/build/$env/partitions.bin" "artifacts/$env/"
           done
-          cp platformio.ini partitions.csv artifacts/
-          cat > artifacts/FLASH_USB.txt <<'EOF'
-          EcoFlow LILYGO T-CAN485 - complete USB flash package
-
-          Environment: lilygo_tcan485
-          Flash layout:
-            0x1000    bootloader.bin
-            0x8000    partitions.bin
-            0x10000   firmware.bin
-            0x390000  spiffs.bin
-
-          IMPORTANT:
-          - Use the four files from artifacts/lilygo_tcan485/ together.
-          - Do not mix files from different GitHub runs or environments.
-          - A full-chip erase also removes NVS/settings. Do not erase unless intentionally doing a factory-clean flash.
-          EOF
+          cp platformio.ini partitions.csv data/fs_version.txt artifacts/
 
       - name: Upload build artifacts
         if: success()
