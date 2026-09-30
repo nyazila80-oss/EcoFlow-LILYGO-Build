@@ -23,8 +23,6 @@ static int tls15p_verify_cert_sig(const mbedtls_x509_crt *child,mbedtls_x509_crt
  unsigned char hash[64]={0}; const mbedtls_md_info_t *md=mbedtls_md_info_from_type(child->sig_md);
  if(!md)return -32766; const size_t hlen=mbedtls_md_get_size(md); if(!hlen||hlen>sizeof(hash))return -32765;
  int rc=mbedtls_md(md,child->tbs.p,child->tbs.len,hash); if(rc!=0)return rc;
- // ESP32 Arduino 2.x carries legacy mbedTLS whose verify API takes a mutable
- // pk_context although verification does not alter the certificate key material.
  return mbedtls_pk_verify_ext(child->sig_pk,&child->sig_opts,&issuer->pk,child->sig_md,hash,hlen,child->sig.p,child->sig.len);
 }
 '''
@@ -48,4 +46,17 @@ if newr not in s:
 for required in ('MBEDTLS_SSL_VERIFY_REQUIRED','mbedtls_pk_verify_ext','tls15p_direct_sig_rc'):
  if required not in h+s: raise RuntimeError('15P invariant missing: '+required)
 hdr.write_text(h,encoding='utf-8'); cpp.write_text(s,encoding='utf-8')
-print('15P direct signature proof installed for legacy mbedTLS API; setCACert/rootCABuff remains VERIFY_REQUIRED')
+
+# Expose proof values through the already-used /api/powerstream/job JSON.
+# The prior 15J/O scripts patch this project source during the same pre-script chain.
+proj=Path(env['PROJECT_DIR'])/'src'/'powerstream_api.cpp'
+p=proj.read_text(encoding='utf-8')
+if '#include <WiFiClientSecure.h>' not in p: raise RuntimeError('15P project anchor missing')
+if 'tls15p_direct_sig_rc' not in p:
+    p=p.replace('#include <WiFiClientSecure.h>','#include <WiFiClientSecure.h>\nextern int tls15p_get_direct_sig_rc(int depth);',1)
+    anchor=',\\\"tls15o_version\\\":\\\"9.36.7.15O-CERT-IDENTITY-CRYPTO\\\"'
+    if anchor not in p: raise RuntimeError('15P JSON anchor missing after 15O patch')
+    insert=',\\\"tls15p_version\\\":\\\"9.36.7.15P-DIRECT-SIG-PROOF\\\",\\\"tls15p_direct_sig_rc\\\":['+'+String(tls15p_get_direct_sig_rc(0))+","+String(tls15p_get_direct_sig_rc(1))+","+String(tls15p_get_direct_sig_rc(2))+","+String(tls15p_get_direct_sig_rc(3))+"],"+'
+    p=p.replace(anchor,insert+anchor,1)
+proj.write_text(p,encoding='utf-8')
+print('15P direct signature proof + job JSON telemetry installed; setCACert/rootCABuff remains VERIFY_REQUIRED')
