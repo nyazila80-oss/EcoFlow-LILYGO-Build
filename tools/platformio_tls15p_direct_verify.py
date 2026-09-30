@@ -1,15 +1,26 @@
 #!/usr/bin/env python3
 Import('env')
 from pathlib import Path
-import re
 pkg=env.PioPlatform().get_package_dir('framework-arduinoespressif32')
 if not pkg: raise RuntimeError('15P: framework unresolved')
 base=Path(pkg)/'libraries'/'WiFiClientSecure'/'src'; hdr=base/'ssl_client.h'; cpp=base/'ssl_client.cpp'
 h=hdr.read_text(encoding='utf-8'); s=cpp.read_text(encoding='utf-8')
 for t in ('tls15o_get_serial','tls15j_verify_cb','MBEDTLS_SSL_VERIFY_REQUIRED'):
     if t not in h+s: raise RuntimeError('15P requires 15O state: '+t)
-# 15P does not weaken TLS. It independently verifies each presented cert signature
-# against its issuer public key inside the existing verify callback.
+# Framework invariant: VERIFY_NONE exists only for the explicit `insecure` branch;
+# setCACert/rootCABuff must select VERIFY_REQUIRED. Do not reject the legitimate
+# framework insecure feature globally -- prove the CA branch itself stays verified.
+ca_branch='''} else if (rootCABuff != NULL) {'''
+verify_required='mbedtls_ssl_conf_authmode(&ssl_client->ssl_conf, MBEDTLS_SSL_VERIFY_REQUIRED);'
+if ca_branch not in s or verify_required not in s:
+    raise RuntimeError('15P: expected verified rootCABuff branch missing')
+ca_pos=s.index(ca_branch); req_pos=s.index(verify_required,ca_pos)
+next_branch=s.find('} else if (',ca_pos+len(ca_branch))
+if next_branch < 0 or not (ca_pos < req_pos < next_branch):
+    raise RuntimeError('15P: VERIFY_REQUIRED is not scoped to rootCABuff/setCACert branch')
+# 15P independently verifies each presented certificate signature against its
+# presented issuer key. This is observation-only; normal mbedTLS chain validation
+# remains authoritative and fail-closed.
 decl='''\n// 15P observation/proof: direct certificate-signature verification result.\nint tls15p_get_direct_sig_rc(int depth);\n'''
 if 'tls15p_get_direct_sig_rc' not in h: h += decl
 storage=r'''
@@ -43,14 +54,5 @@ if newr not in s:
  s=s.replace(oldr,newr,1)
 for required in ('MBEDTLS_SSL_VERIFY_REQUIRED','mbedtls_pk_verify_ext','tls15p_direct_sig_rc'):
  if required not in h+s: raise RuntimeError('15P invariant missing: '+required)
-# Guard only active weakening calls/assignments. The framework may legitimately
-# contain VERIFY_NONE in other branches or diagnostics; mere token presence is not a failure.
-active=[]
-for line in s.splitlines():
- stripped=line.strip()
- if not stripped or stripped.startswith('//') or stripped.startswith('*'): continue
- if re.search(r'mbedtls_ssl_conf_authmode\s*\([^;]*MBEDTLS_SSL_VERIFY_NONE',line): active.append(stripped)
- if re.search(r'\bsetInsecure\s*\(',line): active.append(stripped)
-if active: raise RuntimeError('15P refuses active insecure verification: '+' | '.join(active[:3]))
 hdr.write_text(h,encoding='utf-8'); cpp.write_text(s,encoding='utf-8')
-print('15P direct certificate signature proof installed; normal TLS verification unchanged/fail-closed')
+print('15P direct signature proof installed; setCACert/rootCABuff branch proven VERIFY_REQUIRED')
