@@ -7,31 +7,24 @@ base=Path(pkg)/'libraries'/'WiFiClientSecure'/'src'; hdr=base/'ssl_client.h'; cp
 h=hdr.read_text(encoding='utf-8'); s=cpp.read_text(encoding='utf-8')
 for t in ('tls15o_get_serial','tls15j_verify_cb','MBEDTLS_SSL_VERIFY_REQUIRED'):
     if t not in h+s: raise RuntimeError('15P requires 15O state: '+t)
-# Framework invariant: VERIFY_NONE exists only for the explicit `insecure` branch;
-# setCACert/rootCABuff must select VERIFY_REQUIRED. Do not reject the legitimate
-# framework insecure feature globally -- prove the CA branch itself stays verified.
 ca_branch='''} else if (rootCABuff != NULL) {'''
 verify_required='mbedtls_ssl_conf_authmode(&ssl_client->ssl_conf, MBEDTLS_SSL_VERIFY_REQUIRED);'
-if ca_branch not in s or verify_required not in s:
-    raise RuntimeError('15P: expected verified rootCABuff branch missing')
-ca_pos=s.index(ca_branch); req_pos=s.index(verify_required,ca_pos)
-next_branch=s.find('} else if (',ca_pos+len(ca_branch))
-if next_branch < 0 or not (ca_pos < req_pos < next_branch):
-    raise RuntimeError('15P: VERIFY_REQUIRED is not scoped to rootCABuff/setCACert branch')
-# 15P independently verifies each presented certificate signature against its
-# presented issuer key. This is observation-only; normal mbedTLS chain validation
-# remains authoritative and fail-closed.
+if ca_branch not in s or verify_required not in s: raise RuntimeError('15P: expected verified rootCABuff branch missing')
+ca_pos=s.index(ca_branch); req_pos=s.index(verify_required,ca_pos); next_branch=s.find('} else if (',ca_pos+len(ca_branch))
+if next_branch < 0 or not (ca_pos < req_pos < next_branch): raise RuntimeError('15P: VERIFY_REQUIRED is not scoped to rootCABuff/setCACert branch')
 decl='''\n// 15P observation/proof: direct certificate-signature verification result.\nint tls15p_get_direct_sig_rc(int depth);\n'''
 if 'tls15p_get_direct_sig_rc' not in h: h += decl
 storage=r'''
 static volatile int s_tls15p_direct_sig_rc[TLS15M_MAX_DEPTH]={-32768,-32768,-32768,-32768};
 static mbedtls_x509_crt *s_tls15p_seen[TLS15M_MAX_DEPTH]={nullptr,nullptr,nullptr,nullptr};
 int tls15p_get_direct_sig_rc(int d){return(d>=0&&d<TLS15M_MAX_DEPTH)?s_tls15p_direct_sig_rc[d]:-32768;}
-static int tls15p_verify_cert_sig(const mbedtls_x509_crt *child,const mbedtls_x509_crt *issuer){
+static int tls15p_verify_cert_sig(const mbedtls_x509_crt *child,mbedtls_x509_crt *issuer){
  if(!child||!issuer||!child->tbs.p||!child->tbs.len||!child->sig.p||!child->sig.len)return -32767;
  unsigned char hash[64]={0}; const mbedtls_md_info_t *md=mbedtls_md_info_from_type(child->sig_md);
  if(!md)return -32766; const size_t hlen=mbedtls_md_get_size(md); if(!hlen||hlen>sizeof(hash))return -32765;
  int rc=mbedtls_md(md,child->tbs.p,child->tbs.len,hash); if(rc!=0)return rc;
+ // ESP32 Arduino 2.x carries legacy mbedTLS whose verify API takes a mutable
+ // pk_context although verification does not alter the certificate key material.
  return mbedtls_pk_verify_ext(child->sig_pk,&child->sig_opts,&issuer->pk,child->sig_md,hash,hlen,child->sig.p,child->sig.len);
 }
 '''
@@ -55,4 +48,4 @@ if newr not in s:
 for required in ('MBEDTLS_SSL_VERIFY_REQUIRED','mbedtls_pk_verify_ext','tls15p_direct_sig_rc'):
  if required not in h+s: raise RuntimeError('15P invariant missing: '+required)
 hdr.write_text(h,encoding='utf-8'); cpp.write_text(s,encoding='utf-8')
-print('15P direct signature proof installed; setCACert/rootCABuff branch proven VERIFY_REQUIRED')
+print('15P direct signature proof installed for legacy mbedTLS API; setCACert/rootCABuff remains VERIFY_REQUIRED')
