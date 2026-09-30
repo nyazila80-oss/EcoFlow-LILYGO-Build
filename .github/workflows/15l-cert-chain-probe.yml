@@ -1,0 +1,88 @@
+name: 15L Certificate Chain Probe Build
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build15l:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PlatformIO
+        run: python -m pip install --upgrade platformio
+      - name: Apply complete 15L patch chain
+        run: |
+          set -euo pipefail
+          python tools/run_tls15l_patch.py
+          grep -F '9.36.7.15L-CERT-CHAIN-PROBE' src/powerstream_api.cpp
+          grep -F 'tls15l_chain' src/powerstream_api.cpp
+          grep -F 'tls15j_verify_flags_raw' src/powerstream_api.cpp
+          grep -F 'client.setCACert(ECOFLOW_CA_BUNDLE);' src/powerstream_api.cpp
+          grep -F 'DigiCert Global Root G2' src/powerstream_api.cpp
+          grep -F 'MIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSj' src/powerstream_api.cpp
+          if grep -Ev '^[[:space:]]*(//|/\*|\*|#)' src/powerstream_api.cpp | grep -Eq '(^|[^[:alnum:]_])setInsecure[[:space:]]*\('; then
+            echo 'ERROR: executable setInsecure() call detected'; exit 1
+          fi
+      - name: Provenance source gate
+        run: |
+          set -euo pipefail
+          grep -F '#define FW_VERSION "2.4.5.9.36.7.15L-CERT-CHAIN-PROBE"' include/config.h
+          test "$(tr -d '\r\n' < data/fs_version.txt)" = '2.4.5.9.36.7.15L-CERT-CHAIN-PROBE'
+          grep -F 'pre:tools/platformio_tls15l_chain_patch.py' platformio.ini
+      - name: Python syntax
+        run: python -m py_compile tools/*.py
+      - name: Resolve and PREPATCH 15J framework
+        run: |
+          set -euo pipefail
+          pio pkg install -e lilygo_tcan485
+          python tools/prepatch_tls15j_framework.py
+          SSL="$HOME/.platformio/packages/framework-arduinoespressif32/libraries/WiFiClientSecure/src/ssl_client.cpp"
+          grep -F 'mbedtls_ssl_conf_verify(&ssl_client->ssl_conf, tls15j_verify_cb, NULL);' "$SSL"
+          grep -F 'MBEDTLS_SSL_VERIFY_REQUIRED' "$SSL"
+      - name: Clean and build firmware with 15L PlatformIO pre-script
+        run: |
+          set -euo pipefail
+          pio run -t clean
+          pio run -e lilygo_tcan485
+          SSL="$HOME/.platformio/packages/framework-arduinoespressif32/libraries/WiFiClientSecure/src/ssl_client.cpp"
+          grep -F 's_tls15l_depth_flags' "$SSL"
+          grep -F 'mbedtls_x509_dn_gets' "$SSL"
+          pio run -e lilygo_tcan485_ota
+          pio run -e lilygo_tcan485 -t buildfs
+          pio run -e lilygo_tcan485_ota -t buildfs
+      - name: Binary provenance gate
+        run: |
+          set -euo pipefail
+          for env in lilygo_tcan485 lilygo_tcan485_ota; do
+            fw=.pio/build/$env/firmware.bin
+            fs=.pio/build/$env/spiffs.bin
+            test -s "$fw"; test -s "$fs"
+            grep -aFq '9.36.7.15L-CERT-CHAIN-PROBE' "$fw"
+            grep -aFq 'tls15l_chain' "$fw"
+            grep -aFq 'tls15j_verify_flags_raw' "$fw"
+            grep -aFq '2.4.5.9.36.7.15L-CERT-CHAIN-PROBE' "$fs"
+          done
+          cmp -s .pio/build/lilygo_tcan485/spiffs.bin .pio/build/lilygo_tcan485_ota/spiffs.bin
+          echo '15L binary provenance PASS'
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts/lilygo_tcan485 artifacts/lilygo_tcan485_ota
+          for env in lilygo_tcan485 lilygo_tcan485_ota; do
+            cp .pio/build/$env/firmware.bin artifacts/$env/
+            cp .pio/build/$env/spiffs.bin artifacts/$env/
+          done
+          cp data/fs_version.txt artifacts/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EcoFlow-LILYGO-15L-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14
