@@ -37,12 +37,16 @@ jobs:
           grep -F 'extra_scripts = pre:tools/platformio_tls15j_framework_patch.py' platformio.ini
       - name: Python syntax
         run: python -m py_compile tools/*.py
-      - name: Resolve PlatformIO packages before 15J framework patch
+      - name: Resolve and PREPATCH framework before any compile
         run: |
           set -euo pipefail
           pio pkg install -e lilygo_tcan485
           test -f "$HOME/.platformio/packages/framework-arduinoespressif32/libraries/WiFiClientSecure/src/ssl_client.cpp"
-          echo '15J framework package resolved before SCons extra script'
+          python tools/prepatch_tls15j_framework.py
+          grep -F 'uint32_t tls15j_get_verify_flags(void)' "$HOME/.platformio/packages/framework-arduinoespressif32/libraries/WiFiClientSecure/src/ssl_client.cpp"
+          grep -F 'mbedtls_ssl_conf_verify(&ssl_client->ssl_conf, tls15j_verify_cb, NULL);' "$HOME/.platformio/packages/framework-arduinoespressif32/libraries/WiFiClientSecure/src/ssl_client.cpp"
+          grep -F 'MBEDTLS_SSL_VERIFY_REQUIRED' "$HOME/.platformio/packages/framework-arduinoespressif32/libraries/WiFiClientSecure/src/ssl_client.cpp"
+          echo '15J framework instrumented before first pio run'
       - name: Clean and build firmware
         run: |
           set -euo pipefail
