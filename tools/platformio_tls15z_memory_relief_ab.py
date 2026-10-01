@@ -16,11 +16,13 @@ if extra not in p:
     if inc not in p: raise RuntimeError('15Z include anchor missing')
     p=p.replace(inc,inc+'\n'+extra,1)
 
-# Add scalar diagnostic state only. No dynamic allocation.
-anchor='static std::atomic<uint32_t> gCloudJobSeq{0};'
+# Add scalar diagnostic state only. No dynamic allocation. Anchor on the
+# long-lived cloud trace state that exists in the base source and is preserved
+# by the composed 15D..15Y pre-scripts. Do not depend on later probe-local state.
+anchor='static std::atomic<uint32_t> gCloudTraceJobId{0};'
 state='''\n// 15Z safe memory-relief A/B evidence. A=pre reservation, B=post reservation.\nstatic std::atomic<int32_t> gTls15zAFree{-1}, gTls15zALargest{-1};\nstatic std::atomic<int32_t> gTls15zBFree{-1}, gTls15zBLargest{-1};\nstatic std::atomic<int32_t> gTls15zDeltaFree{0}, gTls15zDeltaLargest{0};\nstatic std::atomic<int32_t> gTls15zReserved{0}, gTls15zSlotReady{0};\n'''
 if 'gTls15zAFree' not in p:
-    if anchor not in p: raise RuntimeError('15Z state anchor missing')
+    if p.count(anchor)!=1: raise RuntimeError('15Z stable state anchor missing/non-unique')
     p=p.replace(anchor,anchor+state,1)
 
 # Instrument immediately before the existing TLS client construction. Reservation
@@ -62,4 +64,4 @@ for forbidden in ('setInsecure(', 'MBEDTLS_SSL_VERIFY_NONE'):
 for key in ('tls15z_version','tls15z_a_internal_free','tls15z_b_internal_free','tls15z_delta_free','tls15z_reserved'):
     if p.count(key)!=1: raise RuntimeError('15Z JSON invariant failed: '+key)
 cpp.write_text(p,encoding='utf-8')
-print('15Z safe memory-relief A/B probe installed; no NimBLE deinit; TLS verification unchanged')
+print('15Z safe memory-relief A/B probe installed; stable composed-state anchor PASS; no NimBLE deinit; TLS verification unchanged')
