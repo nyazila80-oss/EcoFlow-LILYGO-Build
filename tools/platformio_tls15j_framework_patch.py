@@ -1,22 +1,8 @@
 #!/usr/bin/env python3
 Import('env')
 from pathlib import Path
-
-# PlatformIO runs pre: extra_scripts before the framework package is guaranteed
-# to be installed/resolved on a clean runner. Resolve the configured framework
-# package directory deterministically instead of failing on get_package_dir().
-pkg = env.PioPlatform().get_package_dir('framework-arduinoespressif32')
-if not pkg:
-    platform_dir = Path(env.PioPlatform().get_dir())
-    candidates = [
-        Path.home()/'.platformio'/'packages'/'framework-arduinoespressif32',
-        platform_dir/'packages'/'framework-arduinoespressif32',
-    ]
-    pkg = next((str(p) for p in candidates if p.exists()), None)
-if not pkg:
-    # Do not weaken TLS or silently skip the patch. A clean runner must first
-    # install the pinned framework package; fail closed with an actionable cause.
-    raise RuntimeError('15J: framework package not installed before pre-script; install pinned framework before build')
+pkg=env.PioPlatform().get_package_dir('framework-arduinoespressif32')
+if not pkg: raise RuntimeError('15J: framework unresolved')
 base=Path(pkg)/'libraries'/'WiFiClientSecure'/'src'; hdr=base/'ssl_client.h'; cpp=base/'ssl_client.cpp'
 h=hdr.read_text(encoding='utf-8'); s=cpp.read_text(encoding='utf-8')
 h_decl='''\nuint32_t tls15j_get_verify_flags(void);\nint tls15j_get_verify_depth(void);\n'''
