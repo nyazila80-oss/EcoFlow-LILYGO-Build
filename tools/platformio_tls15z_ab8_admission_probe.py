@@ -11,21 +11,41 @@ cpp=proj/'src'/'powerstream_api.cpp'
 p=cpp.read_text(encoding='utf-8')
 
 anchor='static std::atomic<uint32_t> gCloudTraceJobId{0};'
-state='''\n// 15Z AB8 admission probe (read-only provenance).\nstatic std::atomic<int32_t> gTls15zAdmInitialized{-1}, gTls15zAdmApp{-1}, gTls15zAdmBms{-1};\nstatic std::atomic<int32_t> gTls15zAdmEvents{-1}, gTls15zAdmSafeHold{-1};\nstatic std::atomic<int32_t> gTls15zAdmStartupEnabled{-1}, gTls15zAdmStartupApplied{-1};\nstatic std::atomic<int32_t> gTls15zAdmAuxReservedBefore{-1}, gTls15zAdmSlotReadyBefore{-1};\nstatic std::atomic<int32_t> gTls15zAdmAttempted{-1};\n'''
+state='''
+// 15Z AB8 admission probe (read-only provenance).
+static std::atomic<int32_t> gTls15zAdmInitialized{-1}, gTls15zAdmApp{-1}, gTls15zAdmBms{-1};
+static std::atomic<int32_t> gTls15zAdmEvents{-1}, gTls15zAdmSafeHold{-1};
+static std::atomic<int32_t> gTls15zAdmStartupEnabled{-1}, gTls15zAdmStartupApplied{-1};
+static std::atomic<int32_t> gTls15zAdmAuxReservedBefore{-1}, gTls15zAdmSlotReadyBefore{-1};
+static std::atomic<int32_t> gTls15zAdmAttempted{-1};
+'''
 if 'gTls15zAdmInitialized' not in p:
     if p.count(anchor)!=1: raise RuntimeError('AB8 admission state anchor missing/non-unique')
     p=p.replace(anchor,anchor+state,1)
 
-old='''bool tls15zAttempted=false, tls15zReserved=false;\n    if(!jkBleProxyAppConnected() && !jkBleProxyEventsPending()){ tls15zAttempted=true; tls15zReserved=jkBleProxyReserveAuxConnection(); }'''
-new='''bool tls15zAttempted=false, tls15zReserved=false;\n    {\n      const JkBleStatusDiag adm=jkBleProxyStatusDiag();\n      gTls15zAdmInitialized.store(adm.initialized?1:0);\n      gTls15zAdmApp.store(adm.appConnected?1:0);\n      gTls15zAdmBms.store(adm.bmsConnected?1:0);\n      gTls15zAdmEvents.store(adm.eventsPending?1:0);\n      gTls15zAdmSafeHold.store(adm.safeHold?1:0);\n      gTls15zAdmStartupEnabled.store(adm.startupEnabled?1:0);\n      gTls15zAdmStartupApplied.store(jkBleStartupAppliedEnabled()?1:0);\n      gTls15zAdmAuxReservedBefore.store(adm.auxReserved?1:0);\n      gTls15zAdmSlotReadyBefore.store(jkBleProxyAuxSlotReady()?1:0);\n    }\n    if(!jkBleProxyAppConnected() && !jkBleProxyEventsPending()){ tls15zAttempted=true; tls15zReserved=jkBleProxyReserveAuxConnection(); }\n    gTls15zAdmAttempted.store(tls15zAttempted?1:0);'''
+old='''bool tls15zAttempted=false, tls15zReserved=false;
+    if(!jkBleProxyAppConnected() && !jkBleProxyEventsPending()){ tls15zAttempted=true; tls15zReserved=jkBleProxyReserveAuxConnection(); }'''
+new='''bool tls15zAttempted=false, tls15zReserved=false;
+    {
+      const JkBleStatusDiag adm=jkBleProxyStatusDiag();
+      gTls15zAdmInitialized.store(adm.initialized?1:0);
+      gTls15zAdmApp.store(adm.appConnected?1:0);
+      gTls15zAdmBms.store(adm.bmsConnected?1:0);
+      gTls15zAdmEvents.store(adm.eventsPending?1:0);
+      gTls15zAdmSafeHold.store(adm.safeHold?1:0);
+      gTls15zAdmStartupEnabled.store(adm.startupEnabled?1:0);
+      gTls15zAdmStartupApplied.store(jkBleStartupAppliedEnabled()?1:0);
+      gTls15zAdmAuxReservedBefore.store(adm.auxReserved?1:0);
+      gTls15zAdmSlotReadyBefore.store(jkBleProxyAuxSlotReady()?1:0);
+    }
+    if(!jkBleProxyAppConnected() && !jkBleProxyEventsPending()){ tls15zAttempted=true; tls15zReserved=jkBleProxyReserveAuxConnection(); }
+    gTls15zAdmAttempted.store(tls15zAttempted?1:0);'''
 if old in p:
     if p.count(old)!=1: raise RuntimeError('AB8 admission call anchor non-unique')
     p=p.replace(old,new,1)
 elif 'gTls15zAdmAttempted.store' not in p:
     raise RuntimeError('AB8 admission call anchor missing')
 
-# Add fields immediately before existing 15Z version provenance so one JSON
-# snapshot correlates admission state with aux generation and TLS result.
 needle='\\"tls15z_version\\":\\"'
 if 'tls15z_adm_initialized' not in p:
     pos=p.find(needle)
@@ -42,8 +62,6 @@ if 'tls15z_adm_initialized' not in p:
             '\\"tls15z_adm_attempted\\":"+String(gTls15zAdmAttempted.load())+",')
     p=p[:pos]+fields+p[pos:]
 
-# Observation-only invariants: retain AB8 handshake, no direct owner call,
-# no TLS weakening, and exactly one copy of every admission field.
 if 'jkBleProxyReserveAuxConnection();' not in p: raise RuntimeError('AB8 handshake missing')
 if 'jkBleProxyReserveAuxConnectionOwner();' in p: raise RuntimeError('AB8 direct owner regression')
 for key in ('tls15z_adm_initialized','tls15z_adm_app_connected','tls15z_adm_bms_connected',
@@ -53,9 +71,9 @@ for key in ('tls15z_adm_initialized','tls15z_adm_app_connected','tls15z_adm_bms_
     if p.count('\\"'+key+'\\"')!=1: raise RuntimeError('AB8 admission JSON invariant: '+key)
 
 def strip_cpp_comments(text):
-    return re.sub(r'//[^\\n]*|/\\*.*?\\*/','',text,flags=re.S)
+    return re.sub(r'//[^\n]*|/\*.*?\*/','',text,flags=re.S)
 code=strip_cpp_comments(p)
-if re.search(r'\\bsetInsecure\\s*\\(',code): raise RuntimeError('AB8 admission security invariant: setInsecure')
+if re.search(r'\bsetInsecure\s*\(',code): raise RuntimeError('AB8 admission security invariant: setInsecure')
 if 'MBEDTLS_SSL_VERIFY_NONE' in code: raise RuntimeError('AB8 admission security invariant: VERIFY_NONE')
 
 cpp.write_text(p,encoding='utf-8')
