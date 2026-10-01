@@ -10,11 +10,19 @@ jkh=proj/'include'/'jk_ble_proxy.h'; jkc=proj/'src'/'jk_ble_proxy.cpp'; cpp=proj
 h=jkh.read_text(encoding='utf-8'); j=jkc.read_text(encoding='utf-8'); p=cpp.read_text(encoding='utf-8')
 
 # Explicit control-flow provenance: a heap value is never used as proof that
-# stopAdvertising() executed.
+# stopAdvertising() executed. Strict 0/1 cardinality prevents repeated pre-script
+# passes (clean USB -> clean OTA -> real build) from duplicating the member.
 old='''  uint32_t afterDecisionFree=0, afterDecisionLargest=0;\n  uint32_t generation=0;'''
 new='''  uint32_t afterDecisionFree=0, afterDecisionLargest=0;\n  uint32_t generation=0;\n  uint32_t stopGeneration=0;'''
-if old in h: h=h.replace(old,new,1)
-elif 'uint32_t stopGeneration=0;' not in h: raise RuntimeError('15Z AB7 header provenance anchor missing/non-unique')
+stop_member='uint32_t stopGeneration=0;'
+stop_count=h.count(stop_member)
+if stop_count==0:
+    if h.count(old)!=1: raise RuntimeError('15Z AB7 header provenance anchor missing/non-unique')
+    h=h.replace(old,new,1)
+elif stop_count==1:
+    pass
+else:
+    raise RuntimeError(f'15Z AB7 header provenance cardinality violation: stopGeneration count={stop_count}')
 
 old_decl='sAuxAfterDecisionFree{0},sAuxAfterDecisionLargest{0},sAuxDiagGeneration{0};'
 new_decl='sAuxAfterDecisionFree{0},sAuxAfterDecisionLargest{0},sAuxDiagGeneration{0},sAuxStopGeneration{0};'
@@ -65,7 +73,6 @@ if json_anchor in p and json_new not in p: p=p.replace(json_anchor,json_new,1)
 elif json_new not in p: raise RuntimeError('15Z AB7 JSON provenance anchor missing')
 
 # Composition/safety invariants: fail the build if any old dangerous form survives.
-# These regexes intentionally use normal regex escapes (single backslashes in raw strings).
 def strip_cpp_comments(text): return re.sub(r'//[^\n]*|/\*.*?\*/','',text,flags=re.S)
 code=strip_cpp_comments(p+'\n'+j)
 if re.search(r'\bsetInsecure\s*\(',code): raise RuntimeError('15Z AB7 security invariant: executable setInsecure()')
@@ -73,6 +80,7 @@ if 'MBEDTLS_SSL_VERIFY_NONE' in code: raise RuntimeError('15Z AB7 security invar
 if 'tls15zAuxAfter.afterStopFree!=0' in p: raise RuntimeError('15Z AB7 provenance invariant: heap value used as stop proof')
 if old_restart in j: raise RuntimeError('15Z AB7 liveness invariant: restart token consumed before confirmation')
 if 'NimBLEDevice::deinit' in code: raise RuntimeError('15Z AB7 lifecycle invariant: live NimBLE deinit forbidden')
+if h.count(stop_member)!=1: raise RuntimeError('15Z AB7 final invariant: stopGeneration member must occur exactly once')
 for x in ('stopGeneration','sAuxStopGeneration','tls15z_stop_generation_before','tls15z_stop_generation_after','tls15z_slot_ready_pre_tls','9.36.7.15Z-MEMORY-RELIEF-AB7'):
     if x not in h+j+p: raise RuntimeError('15Z AB7 composition invariant missing: '+x)
 
