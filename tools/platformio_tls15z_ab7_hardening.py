@@ -45,11 +45,10 @@ new_state='static std::atomic<uint32_t> gTls15zGeneration{0}, gTls15zAuxGenerati
 if old_state in p: p=p.replace(old_state,new_state,1)
 elif 'gTls15zStopGenerationBefore' not in p: raise RuntimeError('15Z AB7 TLS state anchor missing')
 
-# Idempotent canonicalization. Never append PreTls/_pre_tls to an already
-# transformed identifier. This is safe across clean USB, clean OTA and repeated
-# PlatformIO pre-script passes.
+# Idempotent canonicalization across USB/OTA and repeated pre-script passes.
 p=re.sub(r'gTls15zSlotReady(?:PreTls)*', 'gTls15zSlotReadyPreTls', p)
 p=re.sub(r'tls15z_slot_ready(?:_pre_tls)*', 'tls15z_slot_ready_pre_tls', p)
+# AB7 upgrades AB6 once. If a later AB8 pass already upgraded provenance, keep it.
 p=p.replace('9.36.7.15Z-MEMORY-RELIEF-AB6','9.36.7.15Z-MEMORY-RELIEF-AB7')
 
 old_before='const JkBleAuxMemoryDiag tls15zAuxBefore=jkBleProxyAuxMemoryDiag(); gTls15zAuxGenerationBefore.store(tls15zAuxBefore.generation);'
@@ -79,8 +78,10 @@ if old_restart in j: raise RuntimeError('15Z AB7 liveness invariant: restart tok
 if 'NimBLEDevice::deinit' in code: raise RuntimeError('15Z AB7 lifecycle invariant: live NimBLE deinit forbidden')
 if h.count(stop_member)!=1: raise RuntimeError('15Z AB7 final invariant: stopGeneration member must occur exactly once')
 if re.search(r'gTls15zSlotReadyPreTlsPreTls|tls15z_slot_ready_pre_tls_pre_tls',p): raise RuntimeError('15Z AB7 idempotence invariant: repeated slot-ready suffix')
-for x in ('stopGeneration','sAuxStopGeneration','tls15z_stop_generation_before','tls15z_stop_generation_after','tls15z_slot_ready_pre_tls','9.36.7.15Z-MEMORY-RELIEF-AB7'):
+for x in ('stopGeneration','sAuxStopGeneration','tls15z_stop_generation_before','tls15z_stop_generation_after','tls15z_slot_ready_pre_tls'):
     if x not in h+j+p: raise RuntimeError('15Z AB7 composition invariant missing: '+x)
+if not ('9.36.7.15Z-MEMORY-RELIEF-AB7' in p or '9.36.7.15Z-MEMORY-RELIEF-AB8' in p):
+    raise RuntimeError('15Z AB7 provenance invariant: neither AB7 nor later AB8 provenance present')
 
 jkh.write_text(h,encoding='utf-8'); jkc.write_text(j,encoding='utf-8'); cpp.write_text(p,encoding='utf-8')
-print('[15Z-AB7] explicit stop provenance + confirmed advertising restart + idempotent slot-ready provenance applied')
+print('[15Z-AB7] explicit stop provenance + confirmed advertising restart + composable/idempotent provenance applied')
