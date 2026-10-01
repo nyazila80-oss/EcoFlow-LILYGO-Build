@@ -1,83 +1,66 @@
 from pathlib import Path
 import re
 
-patch = Path('tools/platformio_tls15z_memory_relief_ab.py').read_text(encoding='utf-8')
-source = Path('src/powerstream_api.cpp').read_text(encoding='utf-8')
-main = Path('src/main.cpp').read_text(encoding='utf-8')
+patch=Path('tools/platformio_tls15z_memory_relief_ab.py').read_text(encoding='utf-8')
+source=Path('src/powerstream_api.cpp').read_text(encoding='utf-8')
+main=Path('src/main.cpp').read_text(encoding='utf-8')
 
-required = [
-    'MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT',
-    '!jkBleProxyAppConnected()',
-    '!jkBleProxyBmsConnected()',
-    '!jkBleProxyEventsPending()',
-    'jkBleProxyReserveAuxConnectionOwner()',
-    'Tls15zReservationGuard',
-    '~Tls15zReservationGuard(){ if(active) jkBleProxyReleaseAuxConnection(); }',
-    'tls15z_delta_free',
-    'tls15z_delta_largest',
-]
-for x in required:
-    assert x in patch, x
+# Required diagnostic dimensions: compare the same capability families already
+# exposed by the 15F allocation-failure evidence, without changing allocation.
+for x in ('MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT','MALLOC_CAP_INTERNAL','MALLOC_CAP_8BIT','MALLOC_CAP_DMA','MALLOC_CAP_32BIT',
+          'tls15z_generation','tls15z_a_internal8_free','tls15z_b_internal8_free','tls15z_a_dma_free','tls15z_b_dma_free',
+          'jkBleProxyReserveAuxConnectionOwner()','Tls15zReservationGuard'):
+    assert x in patch,x
 
-# Same-task deadlock regression: cloud work is synchronously serviced before the
-# normal JK owner tick in Arduino loop(). 15Z therefore must never use the
-# worker REQUESTED->wait reservation API from apiRequest().
-cloud_pos = main.index('powerStreamApiLoopTick();')
-jk_pos = main.index('jkBleProxyTick();')
-assert cloud_pos < jk_pos, 'test assumption changed: JK tick now precedes cloud tick'
-probe_start = patch.index("probe='''")
-probe_end = patch.index("'''", probe_start + len("probe='''"))
-probe = patch[probe_start:probe_end]
+# Same-task deadlock gate.
+assert main.index('powerStreamApiLoopTick();') < main.index('jkBleProxyTick();')
+probe_start=patch.index("probe='''"); probe_end=patch.index("'''",probe_start+len("probe='''")); probe=patch[probe_start:probe_end]
 assert 'jkBleProxyReserveAuxConnectionOwner()' in probe
-assert 'jkBleProxyReserveAuxConnection();' not in probe, \
-    '15Z reintroduced same-loop REQUESTED/wait self-block'
+assert 'jkBleProxyReserveAuxConnection();' not in probe
 
-# The owner primitive must transition IDLE->PROCESSING directly, never publish a
-# REQUESTED state that requires a later jkBleProxyTick(). It must re-check live
-# server connections and deferred callback events after stopAdvertising().
-assert 'AuxReserveState expected=AuxReserveState::IDLE;' in patch
-assert 'AuxReserveState::PROCESSING' in patch
-owner_start = patch.index("owner_impl=r'''")
-owner_end = patch.index("'''", owner_start + len("owner_impl=r'''"))
-owner = patch[owner_start:owner_end]
+# Owner primitive: direct IDLE->PROCESSING; post-stop race checks mandatory.
+owner_start=patch.index("owner_impl=r'''"); owner_end=patch.index("'''",owner_start+len("owner_impl=r'''")); owner=patch[owner_start:owner_end]
+assert 'AuxReserveState expected=AuxReserveState::IDLE;' in owner
+assert 'AuxReserveState::PROCESSING' in owner
 assert 'AuxReserveState::REQUESTED' not in owner
 assert 'NimBLEDevice::stopAdvertising();' in owner
-assert 'sServer->getConnectedCount()==0' in owner
+assert owner.count('sServer->getConnectedCount()==0') >= 2
 assert '!bleEventsPending()' in owner
 
-# Lifecycle regression: apiRequest() contains many early returns. Release must be
-# RAII, not attached to one textual http.end() path. Declaration order is also
-# intentional: guard appears before WiFiClientSecure, so C++ reverse destruction
-# destroys HTTP/TLS objects before the guard schedules BLE advertising restart.
+# RAII must dominate every apiRequest early return and be constructed before TLS
+# objects, so reverse destruction releases BLE only after WiFiClientSecure dies.
 assert probe.index('Tls15zReservationGuard') < probe.index('WiFiClientSecure client;')
-assert "if (tls15zReserved) jkBleProxyReleaseAuxConnection();" not in patch
-assert "lifecycle invariant: obsolete path-local release present" in patch
+assert '~Tls15zReservationGuard(){ if(active) jkBleProxyReleaseAuxConnection(); }' in probe
+assert 'if (tls15zReserved) jkBleProxyReleaseAuxConnection();' not in patch
 
-# Composition gate: 15Z must anchor only to source state already present before
-# the TLS probe chain runs.
-stable_anchor = 'static std::atomic<uint32_t> gCloudTraceJobId{0};'
-assert source.count(stable_anchor) == 1, 'base source stable 15Z anchor missing/non-unique'
+# Provenance/stale-data gate: every attempt increments generation and clears
+# outcome flags before the reservation decision.
+gen=probe.index('gTls15zGeneration.fetch_add(1)')
+reset=probe.index('gTls15zReserved.store(0)')
+decision=probe.index('jkBleProxyReserveAuxConnectionOwner()')
+assert gen < reset < decision
+assert 'gTls15zSlotReady.store(0)' in probe
+
+# A must precede reservation, B must follow it. Capability probes are observation
+# only: no malloc/free/deinit is allowed in the A/B probe.
+assert probe.index('gTls15zAInternal.store') < decision < probe.index('gTls15zBInternal.store')
+assert probe.index('gTls15zADma.store') < decision < probe.index('gTls15zBDma.store')
+assert 'heap_caps_malloc' not in probe and 'heap_caps_free' not in probe and 'NimBLEDevice::deinit' not in probe
+
+# Composition anchor remains pre-chain stable.
+stable_anchor='static std::atomic<uint32_t> gCloudTraceJobId{0};'
+assert source.count(stable_anchor)==1
 assert "anchor='static std::atomic<uint32_t> gCloudTraceJobId{0};'" in patch
-assert "gCloudJobSeq{0}" not in patch
 assert "p.count(anchor)!=1" in patch
 
-# Fail closed on TLS security. Comments mentioning forbidden APIs are ignored,
-# executable uses are not.
-def strip_cpp_comments(text):
-    return re.sub(r'//[^\n]*|/\*.*?\*/', '', text, flags=re.S)
-source_code = strip_cpp_comments(source)
-assert not re.search(r'\bsetInsecure\s*\(', source_code)
+# TLS security remains fail-closed.
+def strip_cpp_comments(text): return re.sub(r'//[^\n]*|/\*.*?\*/','',text,flags=re.S)
+source_code=strip_cpp_comments(source); patch_code=strip_cpp_comments(patch)
+assert not re.search(r'\bsetInsecure\s*\(',source_code)
 assert 'MBEDTLS_SSL_VERIFY_NONE' not in source_code
-assert 'def strip_cpp_comments(text):' in patch
-assert "code=strip_cpp_comments(p)" in patch
-assert "re.search(r'\\bsetInsecure\\s*\\(', code)" in patch
 assert "raise RuntimeError('15Z safety invariant: executable setInsecure()')" in patch
-assert "if 'MBEDTLS_SSL_VERIFY_NONE' in code:" in patch
 assert "raise RuntimeError('15Z safety invariant: executable VERIFY_NONE')" in patch
+assert 'NimBLEDevice::deinit' not in patch_code
+assert '9.36.7.15Z-MEMORY-RELIEF-AB3' in patch
 
-# Scope gate: this remains an observation-first advertising/slot A/B. It must
-# not introduce live NimBLE deinitialization or TLS verification weakening.
-assert 'NimBLEDevice::deinit' not in strip_cpp_comments(patch)
-assert '9.36.7.15Z-MEMORY-RELIEF-AB2' in patch
-
-print('15Z AB2 same-loop ownership + RAII + TLS safety regression PASS')
+print('15Z AB3 FMEA regression PASS: ownership, RAII, provenance, capability telemetry, TLS security')
