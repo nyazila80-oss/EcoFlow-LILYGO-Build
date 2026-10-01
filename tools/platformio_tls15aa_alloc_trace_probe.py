@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from pathlib import Path
 
+# 15AA CI retrigger marker: 2026-10-01. No runtime behavior change.
 p=Path('src/powerstream_api.cpp')
 s=p.read_text(encoding='utf-8')
 
