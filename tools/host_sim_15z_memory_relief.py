@@ -3,6 +3,7 @@ import re
 
 base=Path('tools/platformio_tls15z_memory_relief_ab.py').read_text(encoding='utf-8')
 hard=Path('tools/platformio_tls15z_ab7_hardening.py').read_text(encoding='utf-8')
+ab8=Path('tools/platformio_tls15z_ab8_hardware_fix.py').read_text(encoding='utf-8')
 source=Path('src/powerstream_api.cpp').read_text(encoding='utf-8')
 main=Path('src/main.cpp').read_text(encoding='utf-8')
 ini=Path('platformio.ini').read_text(encoding='utf-8')
@@ -51,9 +52,18 @@ assert old_clear in hard
 assert "if old_restart in j: raise RuntimeError" in hard
 
 # Slot telemetry is explicitly pre-TLS; it is not a release/liveness proof.
-assert "p=p.replace('gTls15zSlotReady','gTls15zSlotReadyPreTls')" in hard
-assert "p=p.replace('tls15z_slot_ready','tls15z_slot_ready_pre_tls')" in hard
+# AB7 and AB8 must canonicalize repeated pre-script passes instead of blindly
+# appending another suffix. This is a regression oracle for the #316/#317 bug.
+assert re.search(r"re\.sub\(r'gTls15zSlotReady\(\?:PreTls\)\*',\s*'gTls15zSlotReadyPreTls',\s*p\)", hard)
+assert re.search(r"re\.sub\(r'tls15z_slot_ready\(\?:_pre_tls\)\*',\s*'tls15z_slot_ready_pre_tls',\s*p\)", hard)
+assert re.search(r"re\.sub\(r'gTls15zSlotReady\(\?:PreTls\)\+',\s*'gTls15zSlotReadyPreTls',\s*p\)", ab8)
+assert re.search(r"re\.sub\(r'tls15z_slot_ready\(\?:_pre_tls\)\+',\s*'tls15z_slot_ready_pre_tls',\s*p\)", ab8)
+for script in (hard,ab8):
+    assert 'gTls15zSlotReadyPreTlsPreTls' in script or 'tls15z_slot_ready_pre_tls_pre_tls' in script
+assert "p=p.replace('gTls15zSlotReady','gTls15zSlotReadyPreTls')" not in hard
+assert "p=p.replace('tls15z_slot_ready','tls15z_slot_ready_pre_tls')" not in hard
 assert '9.36.7.15Z-MEMORY-RELIEF-AB7' in hard
+assert '9.36.7.15Z-MEMORY-RELIEF-AB8' in ab8
 
 # Composition is fail-hard and USB/OTA share the same inherited pre-script chain.
 for msg in ('header provenance anchor','source provenance declaration anchor','owner stop marker anchor','advertising retry anchor','before provenance anchor','after provenance anchor','stop provenance expression','JSON provenance anchor'):
@@ -76,7 +86,7 @@ def generated_templates(script):
     return '\n'.join(m.group(2) for m in re.finditer(r"(?:r)?('''|\"\"\")(.*?)(?:\1)",script,flags=re.S))
 
 source_code=strip_cpp_comments(source)
-generated_code=strip_cpp_comments(generated_templates(base)+'\n'+generated_templates(hard))
+generated_code=strip_cpp_comments(generated_templates(base)+'\n'+generated_templates(hard)+'\n'+generated_templates(ab8))
 fast_code=source_code+'\n'+generated_code
 assert not re.search(r'\bsetInsecure\s*\(',fast_code)
 assert 'MBEDTLS_SSL_VERIFY_NONE' not in fast_code
@@ -85,5 +95,5 @@ assert "security invariant: executable setInsecure()" in hard
 assert "security invariant: executable VERIFY_NONE" in hard
 assert "lifecycle invariant: live NimBLE deinit forbidden" in hard
 
-print('15Z AB7 FAST generated-code gate PASS: TLS verification, NimBLE lifecycle, provenance, advertising retry, obsolete-release and USB/OTA composition')
-print('15Z AB7 FMEA regression PASS: semantic provenance oracle, false-pass guard, retry-safe advertising liveness, serialized DENIED paths, USB/OTA composition, TLS security')
+print('15Z AB7/AB8 FAST generated-code gate PASS: TLS verification, NimBLE lifecycle, provenance, advertising retry, idempotent slot telemetry, obsolete-release and USB/OTA composition')
+print('15Z AB7/AB8 FMEA regression PASS: semantic provenance oracle, false-pass guard, retry-safe advertising liveness, serialized DENIED paths, idempotent pre-TLS naming, USB/OTA composition, TLS security')
