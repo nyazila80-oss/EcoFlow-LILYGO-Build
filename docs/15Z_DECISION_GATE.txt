@@ -1,0 +1,10 @@
+15Z hardware decision gate
+
+PASS-to-B2 consideration requires all of:
+1. CI green including USB/OTA firmware and SPIFFS artifact gates.
+2. tls15z_reserved=true on an idle JK run.
+3. No heavy_release_mismatch increase.
+4. JK proxy remains operational after request.
+5. Compare delta_free/delta_largest with 15Y crypto result.
+
+Do NOT implement stronger NimBLE relief solely because B1 delta is small. First prove lifecycle safety and identify retained allocation owner.

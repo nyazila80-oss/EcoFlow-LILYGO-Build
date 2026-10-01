@@ -1,0 +1,1 @@
+Source checkpoint commit follows 15Y green baseline. Safe A/B instrumentation only.

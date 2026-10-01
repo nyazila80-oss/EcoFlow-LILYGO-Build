@@ -3,7 +3,7 @@
 #include <Preferences.h>
 #include <atomic>
 
-#define FW_VERSION "2.4.5.9.36.7.15I-X509-ROOTCAUSE"
+#define FW_VERSION "2.4.5.9.36.7.15Z-MEMORY-RELIEF-AB8"
 
 // RS485
 #define RS485_TX 22

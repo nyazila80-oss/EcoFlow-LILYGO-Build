@@ -1,0 +1,12 @@
+Expected additional /api/powerstream/status fields:
+tls15z_version
+tls15z_a_internal_free
+tls15z_a_internal_largest
+tls15z_b_internal_free
+tls15z_b_internal_largest
+tls15z_delta_free
+tls15z_delta_largest
+tls15z_reserved
+tls15z_slot_ready
+
+Keep 15Y fields for same-run correlation, especially tls15y_rsa_direct_rc and tls15y_internal_*.
