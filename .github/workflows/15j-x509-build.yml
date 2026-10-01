@@ -1,8 +1,8 @@
 name: 15J X509 Verify Diagnostic Build
 
+# Legacy diagnostic. Retained for explicit forensic reruns only; the current
+# PlatformIO build already applies the maintained TLS framework patch chain.
 on:
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
