@@ -4,13 +4,8 @@ from pathlib import Path
 import re
 
 # 15Z remains observation-first: no NimBLE deinit and no TLS weakening.
-proj=Path(env['PROJECT_DIR'])
-cpp=proj/'src'/'powerstream_api.cpp'
-p=cpp.read_text(encoding='utf-8')
-jkh=proj/'include'/'jk_ble_proxy.h'
-jkc=proj/'src'/'jk_ble_proxy.cpp'
-h=jkh.read_text(encoding='utf-8')
-j=jkc.read_text(encoding='utf-8')
+proj=Path(env['PROJECT_DIR']); cpp=proj/'src'/'powerstream_api.cpp'; p=cpp.read_text(encoding='utf-8')
+jkh=proj/'include'/'jk_ble_proxy.h'; jkc=proj/'src'/'jk_ble_proxy.cpp'; h=jkh.read_text(encoding='utf-8'); j=jkc.read_text(encoding='utf-8')
 
 decl='bool jkBleProxyReserveAuxConnectionOwner();'
 if decl not in h:
@@ -25,22 +20,12 @@ owner_impl=r'''bool jkBleProxyReserveAuxConnectionOwner(){
   sAuxDiagGeneration.fetch_add(1,std::memory_order_acq_rel);
   auxMemSnap(sAuxBeforeFree,sAuxBeforeLargest); sAuxAfterStopFree=0; sAuxAfterStopLargest=0;
   bool grant=sServer && sServer->getConnectedCount()==0;
-  if(grant){
-    NimBLEDevice::stopAdvertising();
-    auxMemSnap(sAuxAfterStopFree,sAuxAfterStopLargest);
-    grant=sServer->getConnectedCount()==0 && !sAppConnected.load(std::memory_order_acquire) &&
-          !sBmsConnected.load(std::memory_order_acquire) && !bleEventsPending();
-  }
-  auxMemSnap(sAuxAfterDecisionFree,sAuxAfterDecisionLargest);
-  sAuxDiagGeneration.fetch_add(1,std::memory_order_release);
+  if(grant){ NimBLEDevice::stopAdvertising(); auxMemSnap(sAuxAfterStopFree,sAuxAfterStopLargest);
+    grant=sServer->getConnectedCount()==0 && !sAppConnected.load(std::memory_order_acquire) && !sBmsConnected.load(std::memory_order_acquire) && !bleEventsPending(); }
+  auxMemSnap(sAuxAfterDecisionFree,sAuxAfterDecisionLargest); sAuxDiagGeneration.fetch_add(1,std::memory_order_release);
   if(grant){ sAuxReserved.store(true,std::memory_order_release); sAuxReserveState.store(AuxReserveState::GRANTED,std::memory_order_release); return true; }
-  sAuxReserved.store(false,std::memory_order_release);
-  sAuxReserveState.store(AuxReserveState::IDLE,std::memory_order_release);
-  // Never restart advertising inside the failed reservation transaction. A BLE
-  // callback may have queued a transition after stopAdvertising(); defer restart
-  // to jkBleProxyTick(), which drains deferred transitions first.
-  sRestartAdvertisingPending.store(true,std::memory_order_release);
-  return false;
+  sAuxReserved.store(false,std::memory_order_release); sAuxReserveState.store(AuxReserveState::IDLE,std::memory_order_release);
+  sRestartAdvertisingPending.store(true,std::memory_order_release); return false;
 }
 '''
 if 'bool jkBleProxyReserveAuxConnectionOwner(){' not in j:
@@ -48,13 +33,16 @@ if 'bool jkBleProxyReserveAuxConnectionOwner(){' not in j:
     if j.count(anchor)!=1: raise RuntimeError('15Z JK implementation reservation anchor missing/non-unique')
     j=j.replace(anchor,owner_impl+'\n'+anchor,1)
 
-# Harden the existing owner restart gate as well: pending events/connections must
-# be resolved before advertising can be restarted.
+# Both reservation mechanisms must serialize advertising restart through the owner.
+worker_denied='''sAuxReserved.store(false,std::memory_order_release);\n        sAuxReserveState.store(AuxReserveState::DENIED,std::memory_order_release);\n        if(sServer && sServer->getConnectedCount()==0 && !sAppConnected.load(std::memory_order_acquire))\n          NimBLEDevice::startAdvertising();'''
+worker_deferred='''sAuxReserved.store(false,std::memory_order_release);\n        sAuxReserveState.store(AuxReserveState::DENIED,std::memory_order_release);\n        sRestartAdvertisingPending.store(true,std::memory_order_release);'''
+if worker_denied in j: j=j.replace(worker_denied,worker_deferred,1)
+elif worker_deferred not in j: raise RuntimeError('15Z worker DENIED restart anchor missing/non-unique')
+
 old='''if(sRestartAdvertisingPending.load(std::memory_order_acquire) && !sAuxReserved.load(std::memory_order_acquire)) {\n      sRestartAdvertisingPending.store(false,std::memory_order_release);\n      NimBLEDevice::startAdvertising();'''
 new='''if(sRestartAdvertisingPending.load(std::memory_order_acquire) &&\n       !sAuxReserved.load(std::memory_order_acquire) &&\n       !bleEventsPending() &&\n       !sAppConnected.load(std::memory_order_acquire) &&\n       sServer && sServer->getConnectedCount()==0) {\n      sRestartAdvertisingPending.store(false,std::memory_order_release);\n      NimBLEDevice::startAdvertising();'''
 if old in j: j=j.replace(old,new,1)
 elif new not in j: raise RuntimeError('15Z restart gate anchor missing/non-unique')
-
 jkh.write_text(h,encoding='utf-8'); jkc.write_text(j,encoding='utf-8')
 
 inc='#include <WiFiClientSecure.h>'; extra='''#include "jk_ble_proxy.h"\n#include "esp_heap_caps.h"'''
@@ -62,12 +50,12 @@ if extra not in p:
     if inc not in p: raise RuntimeError('15Z include anchor missing')
     p=p.replace(inc,inc+'\n'+extra,1)
 anchor='static std::atomic<uint32_t> gCloudTraceJobId{0};'
-state='''\n// 15Z AB4: provenance + capability-specific A/B evidence + serialized advertising restart.\nstatic std::atomic<uint32_t> gTls15zGeneration{0};\nstatic std::atomic<int32_t> gTls15zAFree{-1}, gTls15zALargest{-1}, gTls15zBFree{-1}, gTls15zBLargest{-1};\nstatic std::atomic<int32_t> gTls15zDeltaFree{0}, gTls15zDeltaLargest{0};\nstatic std::atomic<int32_t> gTls15zAInternal{-1}, gTls15zAInternalLargest{-1}, gTls15zBInternal{-1}, gTls15zBInternalLargest{-1};\nstatic std::atomic<int32_t> gTls15zA8{-1}, gTls15zA8Largest{-1}, gTls15zB8{-1}, gTls15zB8Largest{-1};\nstatic std::atomic<int32_t> gTls15zADma{-1}, gTls15zADmaLargest{-1}, gTls15zBDma{-1}, gTls15zBDmaLargest{-1};\nstatic std::atomic<int32_t> gTls15zA32{-1}, gTls15zA32Largest{-1}, gTls15zB32{-1}, gTls15zB32Largest{-1};\nstatic std::atomic<int32_t> gTls15zReserved{0}, gTls15zSlotReady{0};\n'''
+state='''\n// 15Z AB5: provenance + capability-specific A/B evidence + fully serialized advertising restart.\nstatic std::atomic<uint32_t> gTls15zGeneration{0};\nstatic std::atomic<int32_t> gTls15zAFree{-1}, gTls15zALargest{-1}, gTls15zBFree{-1}, gTls15zBLargest{-1};\nstatic std::atomic<int32_t> gTls15zDeltaFree{0}, gTls15zDeltaLargest{0};\nstatic std::atomic<int32_t> gTls15zAInternal{-1}, gTls15zAInternalLargest{-1}, gTls15zBInternal{-1}, gTls15zBInternalLargest{-1};\nstatic std::atomic<int32_t> gTls15zA8{-1}, gTls15zA8Largest{-1}, gTls15zB8{-1}, gTls15zB8Largest{-1};\nstatic std::atomic<int32_t> gTls15zADma{-1}, gTls15zADmaLargest{-1}, gTls15zBDma{-1}, gTls15zBDmaLargest{-1};\nstatic std::atomic<int32_t> gTls15zA32{-1}, gTls15zA32Largest{-1}, gTls15zB32{-1}, gTls15zB32Largest{-1};\nstatic std::atomic<int32_t> gTls15zReserved{0}, gTls15zSlotReady{0};\n'''
 if 'gTls15zAFree' not in p:
     if p.count(anchor)!=1: raise RuntimeError('15Z stable state anchor missing/non-unique')
     p=p.replace(anchor,anchor+state,1)
 anchor2='WiFiClientSecure client;'
-probe='''const uint32_t tls15zCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;\n    const uint32_t tls15zGen=gTls15zGeneration.fetch_add(1)+1; (void)tls15zGen;\n    gTls15zReserved.store(0); gTls15zSlotReady.store(0);\n    auto tls15zFree=[](uint32_t c){ return (int32_t)heap_caps_get_free_size(c); };\n    auto tls15zLargest=[](uint32_t c){ return (int32_t)heap_caps_get_largest_free_block(c); };\n    int32_t tls15zAFree=tls15zFree(tls15zCaps), tls15zALargest=tls15zLargest(tls15zCaps);\n    gTls15zAFree.store(tls15zAFree); gTls15zALargest.store(tls15zALargest);\n    gTls15zAInternal.store(tls15zFree(MALLOC_CAP_INTERNAL)); gTls15zAInternalLargest.store(tls15zLargest(MALLOC_CAP_INTERNAL));\n    gTls15zA8.store(tls15zFree(MALLOC_CAP_8BIT)); gTls15zA8Largest.store(tls15zLargest(MALLOC_CAP_8BIT));\n    gTls15zADma.store(tls15zFree(MALLOC_CAP_DMA)); gTls15zADmaLargest.store(tls15zLargest(MALLOC_CAP_DMA));\n    gTls15zA32.store(tls15zFree(MALLOC_CAP_32BIT)); gTls15zA32Largest.store(tls15zLargest(MALLOC_CAP_32BIT));\n    bool tls15zReserved=false;\n    if(!jkBleProxyAppConnected() && !jkBleProxyBmsConnected() && !jkBleProxyEventsPending()) tls15zReserved=jkBleProxyReserveAuxConnectionOwner();\n    struct Tls15zReservationGuard{ bool active; ~Tls15zReservationGuard(){ if(active) jkBleProxyReleaseAuxConnection(); } } tls15zGuard{tls15zReserved};\n    int32_t tls15zBFree=tls15zFree(tls15zCaps), tls15zBLargest=tls15zLargest(tls15zCaps);\n    gTls15zBFree.store(tls15zBFree); gTls15zBLargest.store(tls15zBLargest);\n    gTls15zBInternal.store(tls15zFree(MALLOC_CAP_INTERNAL)); gTls15zBInternalLargest.store(tls15zLargest(MALLOC_CAP_INTERNAL));\n    gTls15zB8.store(tls15zFree(MALLOC_CAP_8BIT)); gTls15zB8Largest.store(tls15zLargest(MALLOC_CAP_8BIT));\n    gTls15zBDma.store(tls15zFree(MALLOC_CAP_DMA)); gTls15zBDmaLargest.store(tls15zLargest(MALLOC_CAP_DMA));\n    gTls15zB32.store(tls15zFree(MALLOC_CAP_32BIT)); gTls15zB32Largest.store(tls15zLargest(MALLOC_CAP_32BIT));\n    gTls15zDeltaFree.store(tls15zBFree-tls15zAFree); gTls15zDeltaLargest.store(tls15zBLargest-tls15zALargest);\n    gTls15zReserved.store(tls15zReserved?1:0); gTls15zSlotReady.store(jkBleProxyAuxSlotReady()?1:0);\n    WiFiClientSecure client;'''
+probe='''const uint32_t tls15zCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;\n    const uint32_t tls15zGen=gTls15zGeneration.fetch_add(1)+1; (void)tls15zGen;\n    gTls15zReserved.store(0); gTls15zSlotReady.store(0);\n    auto tls15zFree=[](uint32_t c){ return (int32_t)heap_caps_get_free_size(c); }; auto tls15zLargest=[](uint32_t c){ return (int32_t)heap_caps_get_largest_free_block(c); };\n    int32_t tls15zAFree=tls15zFree(tls15zCaps), tls15zALargest=tls15zLargest(tls15zCaps);\n    gTls15zAFree.store(tls15zAFree); gTls15zALargest.store(tls15zALargest);\n    gTls15zAInternal.store(tls15zFree(MALLOC_CAP_INTERNAL)); gTls15zAInternalLargest.store(tls15zLargest(MALLOC_CAP_INTERNAL)); gTls15zA8.store(tls15zFree(MALLOC_CAP_8BIT)); gTls15zA8Largest.store(tls15zLargest(MALLOC_CAP_8BIT)); gTls15zADma.store(tls15zFree(MALLOC_CAP_DMA)); gTls15zADmaLargest.store(tls15zLargest(MALLOC_CAP_DMA)); gTls15zA32.store(tls15zFree(MALLOC_CAP_32BIT)); gTls15zA32Largest.store(tls15zLargest(MALLOC_CAP_32BIT));\n    bool tls15zReserved=false; if(!jkBleProxyAppConnected() && !jkBleProxyBmsConnected() && !jkBleProxyEventsPending()) tls15zReserved=jkBleProxyReserveAuxConnectionOwner();\n    struct Tls15zReservationGuard{ bool active; ~Tls15zReservationGuard(){ if(active) jkBleProxyReleaseAuxConnection(); } } tls15zGuard{tls15zReserved};\n    int32_t tls15zBFree=tls15zFree(tls15zCaps), tls15zBLargest=tls15zLargest(tls15zCaps); gTls15zBFree.store(tls15zBFree); gTls15zBLargest.store(tls15zBLargest);\n    gTls15zBInternal.store(tls15zFree(MALLOC_CAP_INTERNAL)); gTls15zBInternalLargest.store(tls15zLargest(MALLOC_CAP_INTERNAL)); gTls15zB8.store(tls15zFree(MALLOC_CAP_8BIT)); gTls15zB8Largest.store(tls15zLargest(MALLOC_CAP_8BIT)); gTls15zBDma.store(tls15zFree(MALLOC_CAP_DMA)); gTls15zBDmaLargest.store(tls15zLargest(MALLOC_CAP_DMA)); gTls15zB32.store(tls15zFree(MALLOC_CAP_32BIT)); gTls15zB32Largest.store(tls15zLargest(MALLOC_CAP_32BIT));\n    gTls15zDeltaFree.store(tls15zBFree-tls15zAFree); gTls15zDeltaLargest.store(tls15zBLargest-tls15zALargest); gTls15zReserved.store(tls15zReserved?1:0); gTls15zSlotReady.store(jkBleProxyAuxSlotReady()?1:0);\n    WiFiClientSecure client;'''
 if 'tls15zCaps' not in p:
     if anchor2 not in p: raise RuntimeError('15Z TLS anchor missing')
     p=p.replace(anchor2,probe,1)
@@ -75,9 +63,8 @@ field='\\"heavy_owner\\":\\"'
 if 'tls15z_version' not in p:
     pos=p.find(field)
     if pos<0: raise RuntimeError('15Z JSON anchor missing')
-    ins=('\\"tls15z_version\\":\\"9.36.7.15Z-MEMORY-RELIEF-AB4\\",' '\\"tls15z_generation\\":"+String(gTls15zGeneration.load())+",' '\\"tls15z_a_internal8_free\\":"+String(gTls15zAFree.load())+",\\"tls15z_a_internal8_largest\\":"+String(gTls15zALargest.load())+",' '\\"tls15z_b_internal8_free\\":"+String(gTls15zBFree.load())+",\\"tls15z_b_internal8_largest\\":"+String(gTls15zBLargest.load())+",' '\\"tls15z_delta_free\\":"+String(gTls15zDeltaFree.load())+",\\"tls15z_delta_largest\\":"+String(gTls15zDeltaLargest.load())+",' '\\"tls15z_a_internal_free\\":"+String(gTls15zAInternal.load())+",\\"tls15z_a_internal_largest\\":"+String(gTls15zAInternalLargest.load())+",' '\\"tls15z_b_internal_free\\":"+String(gTls15zBInternal.load())+",\\"tls15z_b_internal_largest\\":"+String(gTls15zBInternalLargest.load())+",' '\\"tls15z_a_8bit_free\\":"+String(gTls15zA8.load())+",\\"tls15z_a_8bit_largest\\":"+String(gTls15zA8Largest.load())+",' '\\"tls15z_b_8bit_free\\":"+String(gTls15zB8.load())+",\\"tls15z_b_8bit_largest\\":"+String(gTls15zB8Largest.load())+",' '\\"tls15z_a_dma_free\\":"+String(gTls15zADma.load())+",\\"tls15z_a_dma_largest\\":"+String(gTls15zADmaLargest.load())+",' '\\"tls15z_b_dma_free\\":"+String(gTls15zBDma.load())+",\\"tls15z_b_dma_largest\\":"+String(gTls15zBDmaLargest.load())+",' '\\"tls15z_a_32bit_free\\":"+String(gTls15zA32.load())+",\\"tls15z_a_32bit_largest\\":"+String(gTls15zA32Largest.load())+",' '\\"tls15z_b_32bit_free\\":"+String(gTls15zB32.load())+",\\"tls15z_b_32bit_largest\\":"+String(gTls15zB32Largest.load())+",' '\\"tls15z_reserved\\":"+(gTls15zReserved.load()?"true":"false")+",\\"tls15z_slot_ready\\":"+(gTls15zSlotReady.load()?"true":"false")+",')
+    ins=('\\"tls15z_version\\":\\"9.36.7.15Z-MEMORY-RELIEF-AB5\\",' '\\"tls15z_generation\\":"+String(gTls15zGeneration.load())+",' '\\"tls15z_a_internal8_free\\":"+String(gTls15zAFree.load())+",\\"tls15z_a_internal8_largest\\":"+String(gTls15zALargest.load())+",' '\\"tls15z_b_internal8_free\\":"+String(gTls15zBFree.load())+",\\"tls15z_b_internal8_largest\\":"+String(gTls15zBLargest.load())+",' '\\"tls15z_delta_free\\":"+String(gTls15zDeltaFree.load())+",\\"tls15z_delta_largest\\":"+String(gTls15zDeltaLargest.load())+",' '\\"tls15z_a_internal_free\\":"+String(gTls15zAInternal.load())+",\\"tls15z_a_internal_largest\\":"+String(gTls15zAInternalLargest.load())+",' '\\"tls15z_b_internal_free\\":"+String(gTls15zBInternal.load())+",\\"tls15z_b_internal_largest\\":"+String(gTls15zBInternalLargest.load())+",' '\\"tls15z_a_8bit_free\\":"+String(gTls15zA8.load())+",\\"tls15z_a_8bit_largest\\":"+String(gTls15zA8Largest.load())+",' '\\"tls15z_b_8bit_free\\":"+String(gTls15zB8.load())+",\\"tls15z_b_8bit_largest\\":"+String(gTls15zB8Largest.load())+",' '\\"tls15z_a_dma_free\\":"+String(gTls15zADma.load())+",\\"tls15z_a_dma_largest\\":"+String(gTls15zADmaLargest.load())+",' '\\"tls15z_b_dma_free\\":"+String(gTls15zBDma.load())+",\\"tls15z_b_dma_largest\\":"+String(gTls15zBDmaLargest.load())+",' '\\"tls15z_a_32bit_free\\":"+String(gTls15zA32.load())+",\\"tls15z_a_32bit_largest\\":"+String(gTls15zA32Largest.load())+",' '\\"tls15z_b_32bit_free\\":"+String(gTls15zB32.load())+",\\"tls15z_b_32bit_largest\\":"+String(gTls15zB32Largest.load())+",' '\\"tls15z_reserved\\":"+(gTls15zReserved.load()?"true":"false")+",\\"tls15z_slot_ready\\":"+(gTls15zSlotReady.load()?"true":"false")+",')
     p=p[:pos]+ins+p[pos:]
-
 def strip_cpp_comments(text): return re.sub(r'//[^\n]*|/\*.*?\*/','',text,flags=re.S)
 code=strip_cpp_comments(p)
 if re.search(r'\bsetInsecure\s*\(',code): raise RuntimeError('15Z safety invariant: executable setInsecure()')
@@ -88,4 +75,4 @@ for key in ('tls15z_version','tls15z_generation','tls15z_a_internal8_free','tls1
 for required in ('jkBleProxyReserveAuxConnectionOwner();','Tls15zReservationGuard','jkBleProxyReleaseAuxConnection();'):
     if required not in p+h+j: raise RuntimeError('15Z lifecycle invariant missing: '+required)
 cpp.write_text(p,encoding='utf-8')
-print('15Z AB4 installed: owner reservation + RAII + capability telemetry + serialized advertising restart PASS; TLS verification unchanged')
+print('15Z AB5 installed: both reservation paths serialize advertising restart; RAII/capability telemetry/TLS verification unchanged')
