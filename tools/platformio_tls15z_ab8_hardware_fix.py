@@ -16,21 +16,29 @@ p=cpp.read_text(encoding='utf-8')
 
 old_call='''if(!jkBleProxyAppConnected() && !jkBleProxyBmsConnected() && !jkBleProxyEventsPending()){ tls15zAttempted=true; tls15zReserved=jkBleProxyReserveAuxConnectionOwner(); }'''
 new_call='''if(!jkBleProxyAppConnected() && !jkBleProxyEventsPending()){ tls15zAttempted=true; tls15zReserved=jkBleProxyReserveAuxConnection(); }'''
+aa_call='''if(gTls15zAdmInitialized.load()==1 && !jkBleProxyAppConnected() && !jkBleProxyEventsPending()){ tls15zAttempted=true; tls15zReserved=jkBleProxyReserveAuxConnection(); }'''
 if old_call in p:
     if p.count(old_call)!=1: raise RuntimeError('15Z AB8 reservation call anchor non-unique')
     p=p.replace(old_call,new_call,1)
 elif new_call in p:
     # Already at the AB8 target state (normal repeated pre-script pass).
     pass
+elif aa_call in p:
+    # 15AA intentionally tightens AB8 admission after the first environment by
+    # requiring the read-only admission snapshot to prove proxy initialization.
+    # USB and OTA share the source tree, so the OTA pre-script sees this form.
+    # It preserves the AB8 REQUESTED->loop-owner handshake and is therefore a
+    # valid downstream/idempotent state, not a malformed anchor.
+    if p.count(aa_call)!=1: raise RuntimeError('15Z AB8/15AA reservation anchor non-unique')
+    pass
 elif ('gTls15zAdmAttempted.store(tls15zAttempted?1:0);' in p and
       'tls15zReserved=jkBleProxyReserveAuxConnection();' in p and
-      'if(!jkBleProxyAppConnected() && !jkBleProxyEventsPending())' in p and
-      'jkBleProxyReserveAuxConnectionOwner();' not in p):
-    # A later AB8 admission probe deliberately expands the exact new_call
-    # anchor with read-only provenance. USB and OTA environments share the
-    # project source tree, so a second PlatformIO pre-script pass sees this
-    # downstream-instrumented form. Treat it as an idempotent no-op only when
-    # the complete AB8 handshake/admission invariants are still present.
+      'jkBleProxyReserveAuxConnectionOwner();' not in p and
+      ('if(!jkBleProxyAppConnected() && !jkBleProxyEventsPending())' in p or
+       'if(gTls15zAdmInitialized.load()==1 && !jkBleProxyAppConnected() && !jkBleProxyEventsPending())' in p)):
+    # A later AB8 admission/15AA probe deliberately expands/tightens the exact
+    # new_call anchor with read-only provenance. Treat it as an idempotent no-op
+    # only when the complete AB8 handshake invariants are still present.
     pass
 else:
     raise RuntimeError('15Z AB8 reservation call anchor missing or malformed')
