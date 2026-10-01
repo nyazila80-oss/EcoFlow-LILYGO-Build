@@ -15,10 +15,18 @@ assert 'AuxReserveState expected=AuxReserveState::IDLE;' in owner and 'AuxReserv
 assert 'AuxReserveState::REQUESTED' not in owner and 'NimBLEDevice::stopAdvertising();' in owner
 assert owner.count('sServer->getConnectedCount()==0') >= 2 and '!bleEventsPending()' in owner
 
-# AB4 race gate: failed post-stop reservation may only request a deferred restart;
-# it must never call startAdvertising() inside the transaction.
+# AB5 race/liveness gate: neither reservation mechanism may restart advertising
+# inside a failed transaction. Both must defer to the Arduino-loop owner.
 assert 'sRestartAdvertisingPending.store(true' in owner
 assert 'NimBLEDevice::startAdvertising();' not in owner
+worker_start=patch.index("worker_denied='''"); worker_end=patch.index("'''",worker_start+len("worker_denied='''")); worker_old=patch[worker_start:worker_end]
+worker_new_start=patch.index("worker_deferred='''"); worker_new_end=patch.index("'''",worker_new_start+len("worker_deferred='''")); worker_new=patch[worker_new_start:worker_new_end]
+assert 'NimBLEDevice::startAdvertising();' in worker_old  # exact legacy pattern being removed
+assert 'NimBLEDevice::startAdvertising();' not in worker_new
+assert 'sRestartAdvertisingPending.store(true' in worker_new
+assert "if worker_denied in j: j=j.replace(worker_denied,worker_deferred,1)" in patch
+assert "elif worker_deferred not in j: raise RuntimeError" in patch
+
 # Main-loop restart gate must wait until deferred transitions are drained and no
 # app/server connection or pending callback exists.
 assert 'processDeferredTransitions();' in patch or 'processDeferredTransitions();' in Path('src/jk_ble_proxy.cpp').read_text(encoding='utf-8')
@@ -44,5 +52,5 @@ assert 'MBEDTLS_SSL_VERIFY_NONE' not in source_code
 assert "raise RuntimeError('15Z safety invariant: executable setInsecure()')" in patch
 assert "raise RuntimeError('15Z safety invariant: executable VERIFY_NONE')" in patch
 assert 'NimBLEDevice::deinit' not in patch_code
-assert '9.36.7.15Z-MEMORY-RELIEF-AB4' in patch
-print('15Z AB4 FMEA regression PASS: ownership, RAII, provenance, capability telemetry, serialized advertising restart, TLS security')
+assert '9.36.7.15Z-MEMORY-RELIEF-AB5' in patch
+print('15Z AB5 FMEA regression PASS: both restart paths serialized, ownership, RAII, provenance, capability telemetry, TLS security')
