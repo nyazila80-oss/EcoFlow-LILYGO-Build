@@ -41,8 +41,11 @@ elif worker_deferred not in j: raise RuntimeError('15Z worker DENIED restart anc
 
 old='''if(sRestartAdvertisingPending.load(std::memory_order_acquire) && !sAuxReserved.load(std::memory_order_acquire)) {\n      sRestartAdvertisingPending.store(false,std::memory_order_release);\n      NimBLEDevice::startAdvertising();'''
 new='''if(sRestartAdvertisingPending.load(std::memory_order_acquire) &&\n       !sAuxReserved.load(std::memory_order_acquire) &&\n       !bleEventsPending() &&\n       !sAppConnected.load(std::memory_order_acquire) &&\n       sServer && sServer->getConnectedCount()==0) {\n      sRestartAdvertisingPending.store(false,std::memory_order_release);\n      NimBLEDevice::startAdvertising();'''
+ab7='''if(sRestartAdvertisingPending.load(std::memory_order_acquire) &&\n       !sAuxReserved.load(std::memory_order_acquire) &&\n       !bleEventsPending() &&\n       !sAppConnected.load(std::memory_order_acquire) &&\n       sServer && sServer->getConnectedCount()==0) {\n      NimBLEDevice::startAdvertising();\n      if(NimBLEDevice::getAdvertising() && NimBLEDevice::getAdvertising()->isAdvertising())\n        sRestartAdvertisingPending.store(false,std::memory_order_release);'''
 if old in j: j=j.replace(old,new,1)
-elif new not in j: raise RuntimeError('15Z restart gate anchor missing/non-unique')
+elif new in j: pass
+elif ab7 in j: pass
+else: raise RuntimeError('15Z restart gate anchor missing/non-unique')
 jkh.write_text(h,encoding='utf-8'); jkc.write_text(j,encoding='utf-8')
 
 inc='#include <WiFiClientSecure.h>'; extra='''#include "jk_ble_proxy.h"\n#include "esp_heap_caps.h"'''
