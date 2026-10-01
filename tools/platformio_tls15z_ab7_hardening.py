@@ -21,28 +21,22 @@ new_decl='sAuxAfterDecisionFree{0},sAuxAfterDecisionLargest{0},sAuxDiagGeneratio
 if old_decl in j: j=j.replace(old_decl,new_decl,1)
 elif 'sAuxStopGeneration{0}' not in j: raise RuntimeError('15Z AB7 source provenance declaration anchor missing')
 
-# The AB6 owner path is generated earlier in the same pre-script chain.
 old_stop='NimBLEDevice::stopAdvertising(); auxMemSnap(sAuxAfterStopFree,sAuxAfterStopLargest);'
 new_stop='NimBLEDevice::stopAdvertising(); sAuxStopGeneration.fetch_add(1,std::memory_order_acq_rel); auxMemSnap(sAuxAfterStopFree,sAuxAfterStopLargest);'
 if old_stop in j: j=j.replace(old_stop,new_stop,1)
 elif new_stop not in j: raise RuntimeError('15Z AB7 owner stop marker anchor missing')
 
-# Export stopGeneration from the seqlock-style diagnostic snapshot. Keep the
-# existing generation semantics intact to avoid widening the functional patch.
 needle='d.afterStopFree=sAuxAfterStopFree.load();d.afterStopLargest=sAuxAfterStopLargest.load();'
 replacement=needle+'d.stopGeneration=sAuxStopGeneration.load(std::memory_order_acquire);'
 if replacement not in j:
     if j.count(needle)!=1: raise RuntimeError('15Z AB7 aux diag snapshot anchor missing/non-unique')
     j=j.replace(needle,replacement,1)
 
-# Advertising liveness: never consume the retry token before confirming that
-# advertising actually became active. Safety gates remain identical to AB6.
 old_restart='''      sRestartAdvertisingPending.store(false,std::memory_order_release);\n      NimBLEDevice::startAdvertising();'''
 new_restart='''      NimBLEDevice::startAdvertising();\n      if(NimBLEDevice::getAdvertising() && NimBLEDevice::getAdvertising()->isAdvertising())\n        sRestartAdvertisingPending.store(false,std::memory_order_release);'''
 if old_restart in j: j=j.replace(old_restart,new_restart,1)
 elif new_restart not in j: raise RuntimeError('15Z AB7 advertising retry anchor missing/non-unique')
 
-# AB6 telemetry -> AB7 explicit stop provenance and unambiguous pre-TLS slot name.
 old_state='static std::atomic<uint32_t> gTls15zGeneration{0}, gTls15zAuxGenerationBefore{0}, gTls15zAuxGenerationAfter{0};'
 new_state='static std::atomic<uint32_t> gTls15zGeneration{0}, gTls15zAuxGenerationBefore{0}, gTls15zAuxGenerationAfter{0}, gTls15zStopGenerationBefore{0}, gTls15zStopGenerationAfter{0};'
 if old_state in p: p=p.replace(old_state,new_state,1)
@@ -65,16 +59,16 @@ new_obs='const bool tls15zStopObserved=tls15zOwnerRan && tls15zAuxAfter.stopGene
 if old_obs in p: p=p.replace(old_obs,new_obs,1)
 elif new_obs not in p: raise RuntimeError('15Z AB7 stop provenance expression missing')
 
-# Add explicit stop-generation fields adjacent to existing aux-generation JSON.
 json_anchor='\\"tls15z_aux_generation_before\\":"+String(gTls15zAuxGenerationBefore.load())+",\\"tls15z_aux_generation_after\\":"+String(gTls15zAuxGenerationAfter.load())+",'
 json_new=json_anchor+'\\"tls15z_stop_generation_before\\":"+String(gTls15zStopGenerationBefore.load())+",\\"tls15z_stop_generation_after\\":"+String(gTls15zStopGenerationAfter.load())+",'
 if json_anchor in p and json_new not in p: p=p.replace(json_anchor,json_new,1)
 elif json_new not in p: raise RuntimeError('15Z AB7 JSON provenance anchor missing')
 
 # Composition/safety invariants: fail the build if any old dangerous form survives.
-def strip_cpp_comments(text): return re.sub(r'//[^\\n]*|/\\*.*?\\*/','',text,flags=re.S)
+# These regexes intentionally use normal regex escapes (single backslashes in raw strings).
+def strip_cpp_comments(text): return re.sub(r'//[^\n]*|/\*.*?\*/','',text,flags=re.S)
 code=strip_cpp_comments(p+'\n'+j)
-if re.search(r'\\bsetInsecure\\s*\\(',code): raise RuntimeError('15Z AB7 security invariant: executable setInsecure()')
+if re.search(r'\bsetInsecure\s*\(',code): raise RuntimeError('15Z AB7 security invariant: executable setInsecure()')
 if 'MBEDTLS_SSL_VERIFY_NONE' in code: raise RuntimeError('15Z AB7 security invariant: executable VERIFY_NONE')
 if 'tls15zAuxAfter.afterStopFree!=0' in p: raise RuntimeError('15Z AB7 provenance invariant: heap value used as stop proof')
 if old_restart in j: raise RuntimeError('15Z AB7 liveness invariant: restart token consumed before confirmation')
