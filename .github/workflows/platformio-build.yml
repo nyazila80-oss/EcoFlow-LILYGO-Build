@@ -135,15 +135,8 @@ jobs:
           mapfile -d '' pyfiles < <(find . -type f -name '*.py' -not -path './.pio/*' -not -path './.git/*' -print0)
           if [ ${#pyfiles[@]} -gt 0 ]; then python -m py_compile "${pyfiles[@]}"; fi
 
-      - name: Host regression simulations
-        shell: bash
-        run: |
-          set -euo pipefail
-          mapfile -t sims < <(find . -maxdepth 2 -type f \( -name 'host_sim*.py' -o -name '*regression*.py' -o -name '*audit*.py' \) -not -path './.pio/*' -not -path './.git/*' | sort)
-          if [ ${#sims[@]} -eq 0 ]; then echo 'No host regression simulation scripts found; gate is informational.'; exit 0; fi
-          printf 'Running %s host simulation/regression scripts\n' "${#sims[@]}"
-          for sim in "${sims[@]}"; do echo "===== $sim ====="; python "$sim"; done
-
+      # Fast fail first: exercise the complete PlatformIO pre-script chain and compiler
+      # before spending several minutes on the heavy host regression suite.
       - name: Clean
         run: pio run -t clean
       - name: Build firmware - USB environment
@@ -154,6 +147,15 @@ jobs:
         run: pio run -e lilygo_tcan485 -t buildfs
       - name: Build SPIFFS - OTA environment
         run: pio run -e lilygo_tcan485_ota -t buildfs
+
+      - name: Host regression simulations
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t sims < <(find . -maxdepth 2 -type f \( -name 'host_sim*.py' -o -name '*regression*.py' -o -name '*audit*.py' \) -not -path './.pio/*' -not -path './.git/*' | sort)
+          if [ ${#sims[@]} -eq 0 ]; then echo 'No host regression simulation scripts found; gate is informational.'; exit 0; fi
+          printf 'Running %s host simulation/regression scripts\n' "${#sims[@]}"
+          for sim in "${sims[@]}"; do echo "===== $sim ====="; python "$sim"; done
 
       - name: Release artifact gate
         shell: bash
