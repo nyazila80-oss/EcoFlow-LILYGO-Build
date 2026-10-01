@@ -27,11 +27,15 @@ worker_new_start=base.index("worker_deferred='''"); worker_new_end=base.index("'
 assert 'NimBLEDevice::startAdvertising();' in worker_old
 assert 'NimBLEDevice::startAdvertising();' not in worker_new and 'sRestartAdvertisingPending.store(true' in worker_new
 
-# AB7 explicit control-flow provenance: stop proof must be monotonic marker based,
-# never inferred from a heap snapshot.
+# AB7 explicit control-flow provenance: the legacy heap-snapshot expression is
+# allowed only as the fail-hard input anchor that AB7 replaces.  The generated
+# C++ is independently guarded by platformio_tls15z_ab7_hardening.py, which
+# raises if the expression survives composition.
 for x in ('uint32_t stopGeneration=0;','sAuxStopGeneration{0}','sAuxStopGeneration.fetch_add(1','tls15zAuxAfter.stopGeneration!=tls15zAuxBefore.stopGeneration','tls15z_stop_generation_before','tls15z_stop_generation_after'):
     assert x in hard,x
-assert 'tls15zAuxAfter.afterStopFree!=0' not in hard
+legacy='tls15zAuxAfter.afterStopFree!=0'
+assert "old_obs='const bool tls15zStopObserved=" + legacy + ";'" in hard
+assert hard.count(legacy) == 2  # replacement anchor + post-composition fail-hard guard only
 assert "if 'tls15zAuxAfter.afterStopFree!=0' in p: raise RuntimeError" in hard
 
 # AB7 advertising liveness: pending is cleared only after confirmed active
