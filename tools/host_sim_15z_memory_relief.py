@@ -39,8 +39,16 @@ assert not re.search(r'\bsetInsecure\s*\(', source_code), \
 assert 'MBEDTLS_SSL_VERIFY_NONE' not in source_code, \
     'forbidden executable TLS weakening: MBEDTLS_SSL_VERIFY_NONE'
 
-# The 15Z PlatformIO patch itself must retain its fail-closed guard.
-assert "for forbidden in ('setInsecure(', 'MBEDTLS_SSL_VERIFY_NONE')" in patch
-assert "raise RuntimeError('15Z safety invariant: forbidden '+forbidden)" in patch
+# The 15Z PlatformIO patch itself must retain the same fail-closed executable-code
+# guard. Do not require the obsolete raw-substring loop that incorrectly matched
+# comments containing words such as "setInsecure()".
+assert 'def strip_cpp_comments(text):' in patch
+assert "code=strip_cpp_comments(p)" in patch
+assert "re.search(r'\\bsetInsecure\\s*\\(', code)" in patch
+assert "raise RuntimeError('15Z safety invariant: executable setInsecure()')" in patch
+assert "if 'MBEDTLS_SSL_VERIFY_NONE' in code:" in patch
+assert "raise RuntimeError('15Z safety invariant: executable VERIFY_NONE')" in patch
+assert "for forbidden in ('setInsecure(', 'MBEDTLS_SSL_VERIFY_NONE')" not in patch, \
+    'obsolete comment-sensitive TLS guard returned'
 
-print('15Z memory-relief source + composed-anchor regression PASS')
+print('15Z memory-relief source + composed-anchor + executable TLS safety regression PASS')
