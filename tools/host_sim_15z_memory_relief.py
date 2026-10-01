@@ -17,6 +17,16 @@ required = [
 for x in required:
     assert x in patch, x
 
+# Composition gate: 15Z must anchor only to source state already present before
+# the TLS probe chain runs. This catches the exact CI failure where 15Z depended
+# on gCloudJobSeq, a symbol not guaranteed after the composed 15D..15Y scripts.
+stable_anchor = 'static std::atomic<uint32_t> gCloudTraceJobId{0};'
+assert source.count(stable_anchor) == 1, 'base source stable 15Z anchor missing/non-unique'
+assert "anchor='static std::atomic<uint32_t> gCloudTraceJobId{0};'" in patch, \
+    '15Z patch is not using the stable pre-chain anchor'
+assert "gCloudJobSeq{0}" not in patch, '15Z still depends on obsolete composed-state anchor'
+assert "p.count(anchor)!=1" in patch, '15Z must fail closed on ambiguous state anchor'
+
 # Match the proven 15D credential audit semantics: remove C/C++ comments before
 # looking for executable TLS weakening. This prevents documentation such as
 # "never call setInsecure()" from becoming a false positive after runtime patches.
@@ -33,4 +43,4 @@ assert 'MBEDTLS_SSL_VERIFY_NONE' not in source_code, \
 assert "for forbidden in ('setInsecure(', 'MBEDTLS_SSL_VERIFY_NONE')" in patch
 assert "raise RuntimeError('15Z safety invariant: forbidden '+forbidden)" in patch
 
-print('15Z memory-relief source regression PASS')
+print('15Z memory-relief source + composed-anchor regression PASS')
