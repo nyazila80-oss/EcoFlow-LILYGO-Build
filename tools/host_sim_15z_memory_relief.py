@@ -64,10 +64,15 @@ assert '9.36.7.15Z-MEMORY-RELIEF-AB7' in hard
 for msg in ('header provenance anchor','source provenance declaration anchor','owner stop marker anchor','advertising retry anchor','before provenance anchor','after provenance anchor','stop provenance expression','JSON provenance anchor'):
     assert msg in hard,msg
 
-# Lifecycle/security invariants remain unchanged.
+# Lifecycle/security invariants remain unchanged. Scope the obsolete-release
+# oracle to generated C++ template text: the same literal intentionally appears
+# in the Python fail-hard invariant and must not make this test false-fail.
 assert 'Tls15zReservationGuard' in base
 assert '~Tls15zReservationGuard(){ if(active) jkBleProxyReleaseAuxConnection(); }' in base
-assert 'if (tls15zReserved) jkBleProxyReleaseAuxConnection();' not in base
+probe_start=base.index("probe='''"); probe_end=base.index("'''",probe_start+len("probe='''")); probe_cpp=base[probe_start:probe_end]
+obsolete_release='if (tls15zReserved) jkBleProxyReleaseAuxConnection();'
+assert obsolete_release not in probe_cpp
+assert "if 'if (tls15zReserved) jkBleProxyReleaseAuxConnection();' in p: raise RuntimeError('15Z lifecycle invariant: obsolete path-local release present')" in base
 
 def strip_cpp_comments(text): return re.sub(r'//[^\n]*|/\*.*?\*/','',text,flags=re.S)
 source_code=strip_cpp_comments(source); hard_code=strip_cpp_comments(hard)
