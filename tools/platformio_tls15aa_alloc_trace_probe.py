@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import re
 
-# 15AA CI retrigger marker: 2026-10-01. No runtime behavior change.
 p=Path('src/powerstream_api.cpp')
 s=p.read_text(encoding='utf-8')
 
@@ -36,16 +36,24 @@ if old_reset in s:
 elif 'gTls15aaFailSeq.store(0' not in s:
     raise RuntimeError('15AA reset anchor missing')
 
-# Append compact fixed-size arrays next to existing failed-allocation diagnostics.
 needle='\\"tls_failed_alloc_count\\":"+String(gTlsFailedAllocCount.load())+'
 if 'tls15aa_fail_seq' not in s:
     pos=s.find(needle)
     if pos<0: raise RuntimeError('15AA JSON anchor missing')
-    fields='\\"tls15aa_version\\":\\"9.36.7.15AA-TLS-ALLOC-TRACE\\",\\"tls15aa_fail_seq\\":"+String(gTls15aaFailSeq.load())+",\\"tls15aa_size\\":["+String(gTls15aaSize[0].load())+","+String(gTls15aaSize[1].load())+","+String(gTls15aaSize[2].load())+","+String(gTls15aaSize[3].load())+","+String(gTls15aaSize[4].load())+","+String(gTls15aaSize[5].load())+","+String(gTls15aaSize[6].load())+","+String(gTls15aaSize[7].load())+"],\\"tls15aa_caps\\":["+String(gTls15aaCaps[0].load())+","+String(gTls15aaCaps[1].load())+","+String(gTls15aaCaps[2].load())+","+String(gTls15aaCaps[3].load())+","+String(gTls15aaCaps[4].load())+","+String(gTls15aaCaps[5].load())+","+String(gTls15aaCaps[6].load())+","+String(gTls15aaCaps[7].load())+"],\\"tls15aa_internal_free\\":["+String(gTls15aaInternalFree[0].load())+","+String(gTls15aaInternalFree[1].load())+","+String(gTls15aaInternalFree[2].load())+","+String(gTls15aaInternalFree[3].load())+","+String(gTls15aaInternalFree[4].load())+","+String(gTls15aaInternalFree[5].load())+","+String(gTls15aaInternalFree[6].load())+","+String(gTls15aaInternalFree[7].load())+"],\\"tls15aa_internal_largest\\":["+String(gTls15aaInternalLargest[0].load())+","+String(gTls15aaInternalLargest[1].load())+","+String(gTls15aaInternalLargest[2].load())+","+String(gTls15aaInternalLargest[3].load())+","+String(gTls15aaInternalLargest[4].load())+","+String(gTls15aaInternalLargest[5].load())+","+String(gTls15aaInternalLargest[6].load())+","+String(gTls15aaInternalLargest[7].load())+"],'+
+
+    def cpp_array(name):
+        return '+","+'.join('String(%s[%d].load())' % (name,i) for i in range(8))
+
+    fields=(
+        '\\"tls15aa_version\\":\\"9.36.7.15AA-TLS-ALLOC-TRACE\\",'
+        '\\"tls15aa_fail_seq\\":"+String(gTls15aaFailSeq.load())+",'
+        '\\"tls15aa_size\\":["+'+cpp_array('gTls15aaSize')+'+"],'
+        '\\"tls15aa_caps\\":["+'+cpp_array('gTls15aaCaps')+'+"],'
+        '\\"tls15aa_internal_free\\":["+'+cpp_array('gTls15aaInternalFree')+'+"],'
+        '\\"tls15aa_internal_largest\\":["+'+cpp_array('gTls15aaInternalLargest')+'+"],'
+    )
     s=s[:pos]+fields+s[pos:]
 
-# AB8 was disproved on hardware when the proxy was not initialized. Avoid trying
-# to reserve an auxiliary BLE slot in that state; preserve behavior if initialized.
 old_ab='''    if(!jkBleProxyAppConnected() && !jkBleProxyEventsPending()){ tls15zAttempted=true; tls15zReserved=jkBleProxyReserveAuxConnection(); }'''
 new_ab='''    if(gTls15zAdmInitialized.load()==1 && !jkBleProxyAppConnected() && !jkBleProxyEventsPending()){ tls15zAttempted=true; tls15zReserved=jkBleProxyReserveAuxConnection(); }'''
 if old_ab in s:
@@ -54,8 +62,6 @@ if old_ab in s:
 elif new_ab not in s:
     raise RuntimeError('15AA AB8 anchor missing')
 
-# Security invariants.
-import re
 def strip_comments(x): return re.sub(r'//[^\n]*|/\*.*?\*/','',x,flags=re.S)
 code=strip_comments(s)
 if re.search(r'\bsetInsecure\s*\(',code): raise RuntimeError('15AA security invariant: setInsecure')
