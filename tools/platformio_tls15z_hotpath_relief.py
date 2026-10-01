@@ -27,47 +27,45 @@ for pat in patterns:
     if n!=1: raise RuntimeError('15Z relief hotpath anchor missing/non-unique: '+pat)
     s=s2
 
-# Security and composition invariants: the genuine TLS verifier remains present;
-# no insecure mode is introduced, and the diagnostic helper definitions remain
-# available so existing JSON/API fields keep ABI/source compatibility.
-if 'MBEDTLS_SSL_VERIFY_REQUIRED' not in s: raise RuntimeError('15Z relief: VERIFY_REQUIRED lost')
-if re.search(r'\bsetInsecure\s*\(',s): raise RuntimeError('15Z relief: executable setInsecure() forbidden')
+# Security/composition invariant, scoped to the path this firmware actually
+# uses. Arduino-ESP32 intentionally contains a VERIFY_NONE branch for callers
+# that explicitly request `insecure`; its mere presence in the framework is not
+# evidence that this firmware uses it. Our EcoFlow client supplies a CA via
+# setCACert(), so require the CA branch to remain VERIFY_REQUIRED and the 15J
+# verify callback to remain attached there.
+required='mbedtls_ssl_conf_authmode(&ssl_client->ssl_conf, MBEDTLS_SSL_VERIFY_REQUIRED);'
+ca_anchor='else if (rootCABuff != NULL)'
+verify_cb='mbedtls_ssl_conf_verify(&ssl_client->ssl_conf, tls15j_verify_cb, NULL);'
+if ca_anchor not in s: raise RuntimeError('15Z relief: CA verification branch lost')
+ca=s[s.index(ca_anchor):]
+# Limit the proof to the CA branch, before the next top-level alternative.
+next_branch=ca.find('else if (',len(ca_anchor))
+if next_branch >= 0: ca=ca[:next_branch]
+if required not in ca: raise RuntimeError('15Z relief: CA path VERIFY_REQUIRED lost')
+if verify_cb not in ca: raise RuntimeError('15Z relief: 15J verify callback lost from CA path')
 
-# Do not use a raw substring search here. Earlier diagnostic instrumentation may
-# legitimately mention VERIFY_NONE in comments/strings used by security guards.
-# Strip comments and string/character literals, then reject the token if it is
-# present in executable C/C++ source. This keeps the fail-closed invariant while
-# avoiding the false positive seen in CI #308.
-def _strip_noncode(src):
-    out=[]
-    i=0
-    n=len(src)
-    while i<n:
-        if src.startswith('//',i):
-            j=src.find('\n',i+2)
-            if j<0: break
-            out.append('\n'); i=j+1; continue
-        if src.startswith('/*',i):
-            j=src.find('*/',i+2)
-            if j<0: raise RuntimeError('15Z relief: unterminated block comment while auditing VERIFY_NONE')
-            out.append('\n'*src[i:j+2].count('\n')); i=j+2; continue
-        if src[i] in ('"', "'"):
-            quote=src[i]; out.append(' '); i+=1
-            while i<n:
-                if src[i]=='\\':
-                    out.append(' '); i+=1
-                    if i<n: out.append('\n' if src[i]=='\n' else ' '); i+=1
-                    continue
-                if src[i]==quote:
-                    out.append(' '); i+=1; break
-                out.append('\n' if src[i]=='\n' else ' '); i+=1
-            continue
-        out.append(src[i]); i+=1
-    return ''.join(out)
+# Project-side fail-closed proof: EcoFlow code must install a CA and must never
+# request Arduino's insecure branch. This checks the actual caller rather than
+# banning a legitimate unused framework capability.
+proj=Path(env['PROJECT_DIR'])
+ps=(proj/'src'/'powerstream_api.cpp').read_text(encoding='utf-8')
+def strip_cpp_comments(text): return re.sub(r'//[^\n]*|/\*.*?\*/','',text,flags=re.S)
+ps_code=strip_cpp_comments(ps)
+if 'client.setCACert(ECOFLOW_CA_BUNDLE);' not in ps_code:
+    raise RuntimeError('15Z relief: EcoFlow CA installation lost')
+if re.search(r'\bsetInsecure\s*\(',ps_code):
+    raise RuntimeError('15Z relief: EcoFlow caller requests insecure TLS')
 
-code_only=_strip_noncode(s)
-if re.search(r'\bMBEDTLS_SSL_VERIFY_NONE\b',code_only):
-    raise RuntimeError('15Z relief: executable VERIFY_NONE forbidden')
+# Framework VERIFY_NONE is allowed only as Arduino's stock opt-in insecure
+# branch. Prove it is still guarded by `if (insecure)` rather than globally
+# rejecting the token (the old #308/#309 false gate).
+none_stmt='mbedtls_ssl_conf_authmode(&ssl_client->ssl_conf, MBEDTLS_SSL_VERIFY_NONE);'
+if none_stmt in s:
+    pos=s.index(none_stmt)
+    guard=s.rfind('if (insecure)',0,pos)
+    ca_pos=s.find(ca_anchor,guard if guard >= 0 else 0)
+    if guard < 0 or ca_pos < 0 or not (guard < pos < ca_pos):
+        raise RuntimeError('15Z relief: VERIFY_NONE escaped stock insecure guard')
 
 for fn in ('static void tls15x_capture_cert','static void tls15x_probe_pair','static void tls15y_probe_pair'):
     if fn not in s: raise RuntimeError('15Z relief: diagnostic compatibility helper missing: '+fn)
@@ -75,4 +73,4 @@ for call in ('tls15x_capture_cert(depth,crt);','tls15x_probe_pair(depth-1);','tl
     if call in s: raise RuntimeError('15Z relief: diagnostic hotpath call survived: '+call)
 
 cpp.write_text(s,encoding='utf-8')
-print('15Z crypto hotpath relief installed: active probes removed; executable VERIFY_NONE rejected; VERIFY_REQUIRED preserved')
+print('15Z crypto hotpath relief installed: active probes removed; EcoFlow CA path VERIFY_REQUIRED; stock insecure branch isolated')
