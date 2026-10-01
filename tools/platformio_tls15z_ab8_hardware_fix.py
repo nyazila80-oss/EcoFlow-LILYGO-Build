@@ -19,8 +19,21 @@ new_call='''if(!jkBleProxyAppConnected() && !jkBleProxyEventsPending()){ tls15zA
 if old_call in p:
     if p.count(old_call)!=1: raise RuntimeError('15Z AB8 reservation call anchor non-unique')
     p=p.replace(old_call,new_call,1)
-elif new_call not in p:
-    raise RuntimeError('15Z AB8 reservation call anchor missing')
+elif new_call in p:
+    # Already at the AB8 target state (normal repeated pre-script pass).
+    pass
+elif ('gTls15zAdmAttempted.store(tls15zAttempted?1:0);' in p and
+      'tls15zReserved=jkBleProxyReserveAuxConnection();' in p and
+      'if(!jkBleProxyAppConnected() && !jkBleProxyEventsPending())' in p and
+      'jkBleProxyReserveAuxConnectionOwner();' not in p):
+    # A later AB8 admission probe deliberately expands the exact new_call
+    # anchor with read-only provenance. USB and OTA environments share the
+    # project source tree, so a second PlatformIO pre-script pass sees this
+    # downstream-instrumented form. Treat it as an idempotent no-op only when
+    # the complete AB8 handshake/admission invariants are still present.
+    pass
+else:
+    raise RuntimeError('15Z AB8 reservation call anchor missing or malformed')
 
 # AB7 used unrestricted substring replacement, so repeated pre-script passes
 # produced tls15z_slot_ready_pre_tls_pre_tls... . Canonicalize exactly once.
