@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 Import('env')
 from pathlib import Path
+import re
 
 # 15Z is deliberately observation-first: it does not deinit NimBLE, weaken TLS,
 # or change cloud request semantics. It adds lifecycle/memory evidence around the
@@ -58,10 +59,17 @@ if 'tls15z_version' not in p:
          '\\"tls15z_slot_ready\\":"+(gTls15zSlotReady.load()?"true":"false")+",')
     p=p[:pos]+ins+p[pos:]
 
-# Safety invariants: never permit diagnostic patch to introduce insecure TLS.
-for forbidden in ('setInsecure(', 'MBEDTLS_SSL_VERIFY_NONE'):
-    if forbidden in p: raise RuntimeError('15Z safety invariant: forbidden '+forbidden)
+# Safety invariant: inspect executable C/C++ only. Earlier diagnostics contain
+# comments such as "no setInsecure()"; raw substring matching would reject those
+# comments even though no insecure call exists. Keep verification fail-closed.
+def strip_cpp_comments(text):
+    return re.sub(r'//[^\n]*|/\*.*?\*/', '', text, flags=re.S)
+code=strip_cpp_comments(p)
+if re.search(r'\bsetInsecure\s*\(', code):
+    raise RuntimeError('15Z safety invariant: executable setInsecure()')
+if 'MBEDTLS_SSL_VERIFY_NONE' in code:
+    raise RuntimeError('15Z safety invariant: executable VERIFY_NONE')
 for key in ('tls15z_version','tls15z_a_internal_free','tls15z_b_internal_free','tls15z_delta_free','tls15z_reserved'):
     if p.count(key)!=1: raise RuntimeError('15Z JSON invariant failed: '+key)
 cpp.write_text(p,encoding='utf-8')
-print('15Z safe memory-relief A/B probe installed; stable composed-state anchor PASS; no NimBLE deinit; TLS verification unchanged')
+print('15Z safe memory-relief A/B probe installed; stable composed-state anchor PASS; executable TLS safety PASS; no NimBLE deinit; TLS verification unchanged')
