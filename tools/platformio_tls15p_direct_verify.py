@@ -51,8 +51,12 @@ if 's_tls15p_direct_sig_rc' not in s:
 old='            s_tls15o_pk_raw_len[depth]=crt->pk_raw.len;'
 new=old+r'''
             s_tls15p_seen[depth]=crt;
-            if(depth>0 && depth<TLS15M_MAX_DEPTH && s_tls15p_seen[depth-1])
-                s_tls15p_direct_sig_rc[depth-1]=tls15p_verify_cert_sig(s_tls15p_seen[depth-1],crt);'''
+            // mbedTLS verify callbacks are not required to arrive leaf-first.
+            // Evaluate either adjacent pair as soon as both members have been seen.
+            if(depth>0 && s_tls15p_seen[depth-1])
+                s_tls15p_direct_sig_rc[depth-1]=tls15p_verify_cert_sig(s_tls15p_seen[depth-1],crt);
+            if(depth+1<TLS15M_MAX_DEPTH && s_tls15p_seen[depth+1])
+                s_tls15p_direct_sig_rc[depth]=tls15p_verify_cert_sig(crt,s_tls15p_seen[depth+1]);'''
 if new not in s:
     if old not in s: raise RuntimeError('15P callback anchor missing')
     s=s.replace(old,new,1)
@@ -100,4 +104,4 @@ if p.count(extern) != 1:
 if field not in p:
     raise RuntimeError('15P damaged stable job JSON tail')
 proj.write_text(p,encoding='utf-8')
-print('15P direct signature proof installed; project telemetry decoupled from 15O; setCACert/rootCABuff remains VERIFY_REQUIRED')
+print('15P direct signature proof installed; callback-order independent; project telemetry decoupled from 15O; setCACert/rootCABuff remains VERIFY_REQUIRED')
