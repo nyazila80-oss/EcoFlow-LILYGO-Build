@@ -3,7 +3,7 @@
 #include <Preferences.h>
 #include <atomic>
 
-#define FW_VERSION "2.4.5.9.36.7.15Z-MEMORY-RELIEF-AB8"
+#define FW_VERSION "2.4.5.9.36.7.15AB-AB8-MEMORY-ATTRIBUTION"
 
 // RS485
 #define RS485_TX 22
@@ -67,14 +67,9 @@ struct Config {
   uint8_t lowSohMin = 70;
 };
 
-// Global config instance
 extern Config config;
 extern std::atomic<bool> canHealth;
-
-// Returns pointer to a config boolean by key name, or nullptr if unknown
 bool* getTogglePtrByKey(const String& k);
-
-// Cross-core-safe mirrors for hot CAN task gates.
 bool canRxEnabledAtomic();
 bool rxLoggingAtomic();
 bool txLoggingAtomic();
@@ -99,10 +94,7 @@ bool setLowSohConfigAtomic(bool enabled, uint8_t minSoh);
 struct CanIdentitySnapshot { char serial[17]; uint16_t chgvolt; };
 void syncCanIdentitySnapshotAtomic();
 CanIdentitySnapshot canIdentitySnapshotAtomic();
-struct CanBatterySnapshot {
-  uint8_t soc; uint16_t volt; uint8_t temp; uint8_t upper; uint8_t lower;
-  uint32_t chgruntime; uint32_t disruntime;
-};
+struct CanBatterySnapshot { uint8_t soc; uint16_t volt; uint8_t temp; uint8_t upper; uint8_t lower; uint32_t chgruntime; uint32_t disruntime; };
 bool batteryMasterAtomic();
 void setBatteryMasterAtomic(bool v);
 bool battSyncAtomic();
@@ -114,10 +106,6 @@ void canPowerSnapshotAtomic(int32_t &inputW, int32_t &outputW);
 struct CanDerivedSnapshot { uint16_t minCellMv, maxCellMv, balanceCapMilli, fullChargeMv; };
 void setCanDerivedSnapshotAtomic(uint16_t minMv,uint16_t maxMv,uint16_t balMilli,uint16_t fullMv);
 CanDerivedSnapshot canDerivedSnapshotAtomic();
-
-
-// ---- Storing core fields ----
 void loadCoreConfig();
 void saveCoreConfig();
-
 String deviceId();
