@@ -1,8 +1,9 @@
 name: 15I X509 Runtime Build
 
+# Legacy diagnostic. The current PlatformIO release path already carries the
+# later TLS diagnostic chain; keep 15I available for explicit forensic reruns
+# without launching it on every pull-request commit.
 on:
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -25,7 +26,6 @@ jobs:
           grep -F 'TLS15I_VERSION="9.36.7.15I-X509-ROOTCAUSE"' src/powerstream_api.cpp
           grep -F 'tls15i_x509_verify_failed' src/powerstream_api.cpp
           grep -F 'client.setCACert(ECOFLOW_CA_BUNDLE);' src/powerstream_api.cpp
-          # Safety gate: reject executable setInsecure() calls, but ignore comments.
           if grep -Ev '^[[:space:]]*(//|/\*|\*|#)' src/powerstream_api.cpp | grep -Eq '(^|[^[:alnum:]_])setInsecure[[:space:]]*\('; then
             echo 'ERROR: executable setInsecure() call detected'
             exit 1
