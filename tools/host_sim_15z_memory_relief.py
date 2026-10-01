@@ -28,9 +28,6 @@ assert 'NimBLEDevice::startAdvertising();' in worker_old
 assert 'NimBLEDevice::startAdvertising();' not in worker_new and 'sRestartAdvertisingPending.store(true' in worker_new
 
 # AB7 provenance oracle: verify semantics, not Python quoting/formatting.
-# The legacy heap observation must be a replacement input only; AB7 must replace
-# it exactly once with explicit control-flow provenance and then fail hard if it
-# survives in generated C++.
 legacy='tls15zAuxAfter.afterStopFree!=0'
 new_expr='tls15zAuxAfter.stopGeneration!=tls15zAuxBefore.stopGeneration'
 for x in ('uint32_t stopGeneration=0;','sAuxStopGeneration{0}','sAuxStopGeneration.fetch_add(1','tls15z_stop_generation_before','tls15z_stop_generation_after'):
@@ -40,11 +37,9 @@ assert re.search(r"new_obs\s*=\s*['\"]const bool tls15zStopObserved=tls15zOwnerR
 assert re.search(r"if\s+old_obs\s+in\s+p\s*:\s*p=p\.replace\(old_obs,new_obs,1\)",hard)
 assert "elif new_obs not in p: raise RuntimeError('15Z AB7 stop provenance expression missing')" in hard
 assert re.search(r"if\s+['\"]tls15zAuxAfter\.afterStopFree!=0['\"]\s+in\s+p\s*:\s*raise RuntimeError\(['\"]15Z AB7 provenance invariant: heap value used as stop proof['\"]\)",hard)
-# Prevent a weakened oracle: both old and new forms must be independently named.
 assert legacy != new_expr and hard.count(legacy) >= 2 and new_expr in hard
 
-# AB7 advertising liveness: pending is cleared only after confirmed active
-# advertising. Failed starts therefore retain the retry token for a later tick.
+# AB7 advertising liveness: pending is cleared only after confirmed active advertising.
 assert 'NimBLEDevice::startAdvertising();' in hard
 assert 'NimBLEDevice::getAdvertising()->isAdvertising()' in hard
 start=hard.index('NimBLEDevice::startAdvertising();')
@@ -64,9 +59,9 @@ assert '9.36.7.15Z-MEMORY-RELIEF-AB7' in hard
 for msg in ('header provenance anchor','source provenance declaration anchor','owner stop marker anchor','advertising retry anchor','before provenance anchor','after provenance anchor','stop provenance expression','JSON provenance anchor'):
     assert msg in hard,msg
 
-# Lifecycle/security invariants remain unchanged. Scope the obsolete-release
-# oracle to generated C++ template text: the same literal intentionally appears
-# in the Python fail-hard invariant and must not make this test false-fail.
+# Lifecycle/security invariants. Never scan the Python hardening script itself as
+# though it were generated C++: forbidden literals intentionally occur inside
+# fail-hard guards. Validate the actual source plus generated C++ templates.
 assert 'Tls15zReservationGuard' in base
 assert '~Tls15zReservationGuard(){ if(active) jkBleProxyReleaseAuxConnection(); }' in base
 probe_start=base.index("probe='''"); probe_end=base.index("'''",probe_start+len("probe='''")); probe_cpp=base[probe_start:probe_end]
@@ -75,11 +70,20 @@ assert obsolete_release not in probe_cpp
 assert "if 'if (tls15zReserved) jkBleProxyReleaseAuxConnection();' in p: raise RuntimeError('15Z lifecycle invariant: obsolete path-local release present')" in base
 
 def strip_cpp_comments(text): return re.sub(r'//[^\n]*|/\*.*?\*/','',text,flags=re.S)
-source_code=strip_cpp_comments(source); hard_code=strip_cpp_comments(hard)
-assert not re.search(r'\bsetInsecure\s*\(',source_code)
-assert 'MBEDTLS_SSL_VERIFY_NONE' not in source_code
+def generated_templates(script):
+    # Extract triple-quoted C/C++ replacement/template payloads only. This keeps
+    # Python guard strings out of executable-code oracles.
+    return '\n'.join(m.group(2) for m in re.finditer(r"(?:r)?('''|\"\"\")(.*?)(?:\1)",script,flags=re.S))
+
+source_code=strip_cpp_comments(source)
+generated_code=strip_cpp_comments(generated_templates(base)+'\n'+generated_templates(hard))
+fast_code=source_code+'\n'+generated_code
+assert not re.search(r'\bsetInsecure\s*\(',fast_code)
+assert 'MBEDTLS_SSL_VERIFY_NONE' not in fast_code
+assert 'NimBLEDevice::deinit' not in fast_code
 assert "security invariant: executable setInsecure()" in hard
 assert "security invariant: executable VERIFY_NONE" in hard
-assert 'NimBLEDevice::deinit' not in hard_code
+assert "lifecycle invariant: live NimBLE deinit forbidden" in hard
 
+print('15Z AB7 FAST generated-code gate PASS: TLS verification, NimBLE lifecycle, provenance, advertising retry, obsolete-release and USB/OTA composition')
 print('15Z AB7 FMEA regression PASS: semantic provenance oracle, false-pass guard, retry-safe advertising liveness, serialized DENIED paths, USB/OTA composition, TLS security')
