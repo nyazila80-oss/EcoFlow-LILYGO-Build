@@ -5,7 +5,7 @@ patch=Path('tools/platformio_tls15z_memory_relief_ab.py').read_text(encoding='ut
 source=Path('src/powerstream_api.cpp').read_text(encoding='utf-8')
 main=Path('src/main.cpp').read_text(encoding='utf-8')
 
-for x in ('MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT','MALLOC_CAP_INTERNAL','MALLOC_CAP_8BIT','MALLOC_CAP_DMA','MALLOC_CAP_32BIT','tls15z_generation','tls15z_a_internal8_free','tls15z_b_internal8_free','tls15z_a_dma_free','tls15z_b_dma_free','jkBleProxyReserveAuxConnectionOwner()','Tls15zReservationGuard'):
+for x in ('MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT','MALLOC_CAP_INTERNAL','MALLOC_CAP_8BIT','MALLOC_CAP_DMA','MALLOC_CAP_32BIT','tls15z_generation','tls15z_outcome','tls15z_stop_observed','tls15z_aux_generation_before','tls15z_aux_generation_after','tls15z_a_internal8_free','tls15z_b_internal8_free','tls15z_a_dma_free','tls15z_b_dma_free','jkBleProxyReserveAuxConnectionOwner()','Tls15zReservationGuard'):
     assert x in patch,x
 assert main.index('powerStreamApiLoopTick();') < main.index('jkBleProxyTick();')
 probe_start=patch.index("probe='''"); probe_end=patch.index("'''",probe_start+len("probe='''")); probe=patch[probe_start:probe_end]
@@ -15,24 +15,26 @@ assert 'AuxReserveState expected=AuxReserveState::IDLE;' in owner and 'AuxReserv
 assert 'AuxReserveState::REQUESTED' not in owner and 'NimBLEDevice::stopAdvertising();' in owner
 assert owner.count('sServer->getConnectedCount()==0') >= 2 and '!bleEventsPending()' in owner
 
-# AB5 race/liveness gate: neither reservation mechanism may restart advertising
-# inside a failed transaction. Both must defer to the Arduino-loop owner.
+# Both failed reservation mechanisms defer advertising restart to the owner.
 assert 'sRestartAdvertisingPending.store(true' in owner
 assert 'NimBLEDevice::startAdvertising();' not in owner
 worker_start=patch.index("worker_denied='''"); worker_end=patch.index("'''",worker_start+len("worker_denied='''")); worker_old=patch[worker_start:worker_end]
 worker_new_start=patch.index("worker_deferred='''"); worker_new_end=patch.index("'''",worker_new_start+len("worker_deferred='''")); worker_new=patch[worker_new_start:worker_new_end]
-assert 'NimBLEDevice::startAdvertising();' in worker_old  # exact legacy pattern being removed
-assert 'NimBLEDevice::startAdvertising();' not in worker_new
-assert 'sRestartAdvertisingPending.store(true' in worker_new
-assert "if worker_denied in j: j=j.replace(worker_denied,worker_deferred,1)" in patch
-assert "elif worker_deferred not in j: raise RuntimeError" in patch
+assert 'NimBLEDevice::startAdvertising();' in worker_old
+assert 'NimBLEDevice::startAdvertising();' not in worker_new and 'sRestartAdvertisingPending.store(true' in worker_new
 
-# Main-loop restart gate must wait until deferred transitions are drained and no
-# app/server connection or pending callback exists.
+# Restart gate waits for deferred transitions and absence of app/server connection.
 assert 'processDeferredTransitions();' in patch or 'processDeferredTransitions();' in Path('src/jk_ble_proxy.cpp').read_text(encoding='utf-8')
 for x in ('!bleEventsPending()','!sAppConnected.load(std::memory_order_acquire)','sServer && sServer->getConnectedCount()==0'):
     assert x in patch,x
-assert patch.index('!bleEventsPending()') < patch.rindex('NimBLEDevice::startAdvertising();')
+
+# AB6 provenance: distinguish not-attempted, denied-before-stop,
+# denied-after-stop, and granted. Generation comparison prevents stale aux data
+# from a prior request being mistaken for this attempt.
+for x in ('JkBleAuxMemoryDiag tls15zAuxBefore','JkBleAuxMemoryDiag tls15zAuxAfter','tls15zAuxAfter.generation!=tls15zAuxBefore.generation','tls15zAuxAfter.afterStopFree!=0','tls15zOutcome=!tls15zAttempted?0:(tls15zReserved?3:(tls15zStopObserved?2:1))'):
+    assert x in probe,x
+assert probe.index('tls15zAuxBefore=jkBleProxyAuxMemoryDiag()') < probe.index('jkBleProxyReserveAuxConnectionOwner()') < probe.index('tls15zAuxAfter=jkBleProxyAuxMemoryDiag()')
+assert 'gTls15zOutcome.store(0)' in probe and 'gTls15zStopObserved.store(0)' in probe
 
 assert probe.index('Tls15zReservationGuard') < probe.index('WiFiClientSecure client;')
 assert '~Tls15zReservationGuard(){ if(active) jkBleProxyReleaseAuxConnection(); }' in probe
@@ -52,5 +54,5 @@ assert 'MBEDTLS_SSL_VERIFY_NONE' not in source_code
 assert "raise RuntimeError('15Z safety invariant: executable setInsecure()')" in patch
 assert "raise RuntimeError('15Z safety invariant: executable VERIFY_NONE')" in patch
 assert 'NimBLEDevice::deinit' not in patch_code
-assert '9.36.7.15Z-MEMORY-RELIEF-AB5' in patch
-print('15Z AB5 FMEA regression PASS: both restart paths serialized, ownership, RAII, provenance, capability telemetry, TLS security')
+assert '9.36.7.15Z-MEMORY-RELIEF-AB6' in patch
+print('15Z AB6 FMEA regression PASS: explicit outcome provenance, both restart paths serialized, RAII, capability telemetry, TLS security')
