@@ -27,16 +27,21 @@ worker_new_start=base.index("worker_deferred='''"); worker_new_end=base.index("'
 assert 'NimBLEDevice::startAdvertising();' in worker_old
 assert 'NimBLEDevice::startAdvertising();' not in worker_new and 'sRestartAdvertisingPending.store(true' in worker_new
 
-# AB7 explicit control-flow provenance: the legacy heap-snapshot expression is
-# allowed only as the fail-hard input anchor that AB7 replaces.  The generated
-# C++ is independently guarded by platformio_tls15z_ab7_hardening.py, which
-# raises if the expression survives composition.
-for x in ('uint32_t stopGeneration=0;','sAuxStopGeneration{0}','sAuxStopGeneration.fetch_add(1','tls15zAuxAfter.stopGeneration!=tls15zAuxBefore.stopGeneration','tls15z_stop_generation_before','tls15z_stop_generation_after'):
-    assert x in hard,x
+# AB7 provenance oracle: verify semantics, not Python quoting/formatting.
+# The legacy heap observation must be a replacement input only; AB7 must replace
+# it exactly once with explicit control-flow provenance and then fail hard if it
+# survives in generated C++.
 legacy='tls15zAuxAfter.afterStopFree!=0'
-assert "old_obs='const bool tls15zStopObserved=" + legacy + ";'" in hard
-assert hard.count(legacy) == 2  # replacement anchor + post-composition fail-hard guard only
-assert "if 'tls15zAuxAfter.afterStopFree!=0' in p: raise RuntimeError" in hard
+new_expr='tls15zAuxAfter.stopGeneration!=tls15zAuxBefore.stopGeneration'
+for x in ('uint32_t stopGeneration=0;','sAuxStopGeneration{0}','sAuxStopGeneration.fetch_add(1','tls15z_stop_generation_before','tls15z_stop_generation_after'):
+    assert x in hard,x
+assert re.search(r"old_obs\s*=\s*['\"]const bool tls15zStopObserved=tls15zOwnerRan && tls15zAuxAfter\.afterStopFree!=0;['\"]",hard)
+assert re.search(r"new_obs\s*=\s*['\"]const bool tls15zStopObserved=tls15zOwnerRan && tls15zAuxAfter\.stopGeneration!=tls15zAuxBefore\.stopGeneration;['\"]",hard)
+assert re.search(r"if\s+old_obs\s+in\s+p\s*:\s*p=p\.replace\(old_obs,new_obs,1\)",hard)
+assert "elif new_obs not in p: raise RuntimeError('15Z AB7 stop provenance expression missing')" in hard
+assert re.search(r"if\s+['\"]tls15zAuxAfter\.afterStopFree!=0['\"]\s+in\s+p\s*:\s*raise RuntimeError\(['\"]15Z AB7 provenance invariant: heap value used as stop proof['\"]\)",hard)
+# Prevent a weakened oracle: both old and new forms must be independently named.
+assert legacy != new_expr and hard.count(legacy) >= 2 and new_expr in hard
 
 # AB7 advertising liveness: pending is cleared only after confirmed active
 # advertising. Failed starts therefore retain the retry token for a later tick.
@@ -47,7 +52,7 @@ confirm=hard.index('isAdvertising()',start)
 clear=hard.index('sRestartAdvertisingPending.store(false',confirm)
 assert start < confirm < clear
 old_clear='sRestartAdvertisingPending.store(false,std::memory_order_release);\\n      NimBLEDevice::startAdvertising();'
-assert old_clear in hard  # fail-hard replacement anchor
+assert old_clear in hard
 assert "if old_restart in j: raise RuntimeError" in hard
 
 # Slot telemetry is explicitly pre-TLS; it is not a release/liveness proof.
@@ -72,4 +77,4 @@ assert "security invariant: executable setInsecure()" in hard
 assert "security invariant: executable VERIFY_NONE" in hard
 assert 'NimBLEDevice::deinit' not in hard_code
 
-print('15Z AB7 FMEA regression PASS: explicit stop provenance, retry-safe advertising liveness, serialized DENIED paths, USB/OTA composition, TLS security')
+print('15Z AB7 FMEA regression PASS: semantic provenance oracle, false-pass guard, retry-safe advertising liveness, serialized DENIED paths, USB/OTA composition, TLS security')
