@@ -78,11 +78,22 @@ if inc not in j:
     owner=owner[:m.end()]+'\n    '+inc+owner[m.end():]
     j=j[:a]+owner+j[b:]
 
-for decl in ('static std::atomic<uint32_t> gTls15zStopGenerationBefore{0};','static std::atomic<uint32_t> gTls15zStopGenerationAfter{0};'):
-    if decl not in p:
-        anchor='static std::atomic<uint32_t> gTls15zAuxGenerationAfter{0};'
-        if anchor not in p: raise RuntimeError('15Z AB7 powerstream provenance declaration anchor missing')
-        p=p.replace(anchor,anchor+'\n'+decl,1)
+# AB6 intentionally declares generation counters on one combined declaration
+# line. Anchor semantically on the unique declaration containing
+# gTls15zAuxGenerationAfter instead of requiring an obsolete standalone line.
+stop_decls=('static std::atomic<uint32_t> gTls15zStopGenerationBefore{0};','static std::atomic<uint32_t> gTls15zStopGenerationAfter{0};')
+missing=[decl for decl in stop_decls if decl not in p]
+if missing:
+    decl_re=re.compile(r'^static\s+std::atomic<uint32_t>[^\n;]*(?:;[^\n;]*)*gTls15zAuxGenerationAfter\{0\}[^\n]*;\s*$',re.M)
+    decl_matches=list(decl_re.finditer(p))
+    if len(decl_matches)!=1:
+        raise RuntimeError('15Z AB7 powerstream provenance declaration anchor missing/non-unique; matches=%d' % len(decl_matches))
+    m=decl_matches[0]
+    insertion='\n'+'\n'.join(missing)
+    p=p[:m.end()]+insertion+p[m.end():]
+for decl in stop_decls:
+    if p.count(decl)!=1:
+        raise RuntimeError('15Z AB7 powerstream provenance declaration duplicated/missing: '+decl)
 
 old_obs='const bool tls15zStopObserved=tls15zOwnerRan && tls15zAuxAfter.afterStopFree!=0;'
 new_obs='const bool tls15zStopObserved=tls15zOwnerRan && tls15zAuxAfter.stopGeneration!=tls15zAuxBefore.stopGeneration;'
