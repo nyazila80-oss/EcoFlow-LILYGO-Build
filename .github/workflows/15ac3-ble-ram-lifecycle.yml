@@ -20,8 +20,25 @@ jobs:
           python-version: "3.11"
       - name: Install PlatformIO
         run: pip install platformio
-      - name: Apply canonical AC1 source generation
-        run: python tools/apply_15ac1_canonical_snapshot.py
+      - name: Ensure canonical AC1 source state
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          p=Path('src/powerstream_api.cpp')
+          s=p.read_text()
+          start=s.index('static bool authHeaders(')
+          end=s.index('\n}\n\nclass BoundedApiResponse',start)
+          a=s[start:end]
+          required=['String requestAccess;','String requestSecret;','requestAccess=gAccess;','requestSecret=gSecret;',
+                    'hmac256(signBase,requestSecret)','http.addHeader("accessKey",requestAccess)','"accessKey="+requestAccess']
+          canonical=all(x in a for x in required) and a.count('gAccess')==1 and a.count('gSecret')==1
+          if canonical:
+              print('Canonical AC1 source already persisted; generator not re-applied')
+          else:
+              print('Canonical AC1 source absent; applying generator once')
+              subprocess.run(['python','tools/apply_15ac1_canonical_snapshot.py'],check=True)
+          PY
       - name: Verify and persist canonical generated source
         run: |
           python - <<'PY'
@@ -33,6 +50,8 @@ jobs:
           for token in required: assert token in a, token
           assert a.count('gAccess') == 1
           assert a.count('gSecret') == 1
+          assert 'hmac256(signBase,gSecret)' not in a
+          assert 'http.addHeader("accessKey",gAccess)' not in a
           print('15AC1 persisted-source gate PASS')
           PY
           if ! git diff --quiet -- src/powerstream_api.cpp tools/apply_tls15d_runtime_patch.py; then
@@ -42,7 +61,7 @@ jobs:
             git commit -m "15AC3: persist canonical AC1 credential snapshot source"
             git push origin HEAD:diag/9.36.7.15AC3-ble-ram-lifecycle
           else
-            echo 'Canonical AC1 source already persisted'
+            echo 'Canonical AC1 source already persisted; no source mutation'
           fi
       - name: BLE RAM lifecycle source audit
         run: |
