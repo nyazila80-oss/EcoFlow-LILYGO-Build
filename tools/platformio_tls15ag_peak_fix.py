@@ -6,10 +6,8 @@ import re
 root=Path(env['PROJECT_DIR'])
 ble=root/'src'/'powerstream_ble_lab.cpp'
 api=root/'src'/'powerstream_api.cpp'
-web=root/'src'/'web.cpp'
 b=ble.read_text(encoding='utf-8')
 p=api.read_text(encoding='utf-8')
-w=web.read_text(encoding='utf-8')
 
 # 15AG solution: reclaim only the idle PowerStream client before Cloud TLS.
 fn='''
@@ -131,17 +129,6 @@ if loop_new not in p:
     if p.count(loop_old)!=1: raise RuntimeError('15AG HTTP quiet loop anchor missing/non-unique')
     p=p.replace(loop_old,loop_new,1)
 
-# The request which queues Cloud TLS must not leave its AsyncTCP keep-alive
-# connection resident during the delayed handshake. The OTA handlers already
-# use this same explicit close contract.
-test_send='''    r->send(ok?202:409,"application/json",ok?(String("{\\"ok\\":true,\\"queued\\":true,\\"job_id\\":")+id+"}"):"{\\"ok\\":false,\\"message\\":\\"EcoFlow API job already active\\"}");'''
-test_close='''    AsyncWebServerResponse* res=r->beginResponse(ok?202:409,"application/json",ok?(String("{\\"ok\\":true,\\"queued\\":true,\\"job_id\\":")+id+"}"):"{\\"ok\\":false,\\"message\\":\\"EcoFlow API job already active\\"}");
-    res->addHeader("Connection","close");
-    r->send(res);'''
-if test_close not in w:
-    if w.count(test_send)!=2: raise RuntimeError('15AG PowerStream queue response anchors missing/non-unique')
-    w=w.replace(test_send,test_close,2)
-
 # Mark a real TLS GET attempt only after the preflight gate has passed.
 get_anchor='if(method=="GET") {\n    gTlsFailedAllocCount.store(0,std::memory_order_relaxed);'
 get_mark='if(method=="GET") {\n    gTlsAttemptedThisJob.store(true,std::memory_order_relaxed);\n    gTlsFailedAllocCount.store(0,std::memory_order_relaxed);'
@@ -177,9 +164,7 @@ if p.count('gTlsAttemptedThisJob.store(true')!=1: raise RuntimeError('15AG TLS a
 if 'tls_diag_job_id' not in p or 'tls_attempted_this_job' not in p: raise RuntimeError('15AG JSON ownership fields missing')
 if p.count('gCloudNotBeforeMs.store(millis()+750U')!=1: raise RuntimeError('15AG HTTP quiet window missing/duplicated')
 if p.count('http_quiet_window_ms')!=1: raise RuntimeError('15AG HTTP quiet JSON field missing/duplicated')
-if w.count('res->addHeader("Connection","close");') < 3: raise RuntimeError('15AG PowerStream queue close contract missing')
 
 ble.write_text(b,encoding='utf-8')
 api.write_text(p,encoding='utf-8')
-web.write_text(w,encoding='utf-8')
-print('[15AG] reclaim retained; Cloud queue HTTP closed before TLS; CA verification retained')
+print('[15AG] reclaim retained; TLS diagnostics reset and job-owned; CA verification retained')
