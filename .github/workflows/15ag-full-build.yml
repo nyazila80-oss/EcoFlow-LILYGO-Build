@@ -76,6 +76,12 @@ jobs:
           assert '9.36.7.15AG-TLS-PEAK-FIX' in p
           assert 'TLS_GET_MIN_LARGEST8 = 32768' in p
           assert 'powerStreamBleLabReclaimIdleClientForCloud(psBleReleased)' in p
+          assert 'gCloudNotBeforeMs.store(millis()+750U' in p
+          assert 'http_quiet_window_ms' in p
+          ui=Path('data/bms_dashboard.html').read_text()
+          assert 'psCloudJobActive=true' in ui
+          assert 'setTimeout(r,14000)' in ui
+          assert 'psDiagPolling||psCloudJobActive' in ui
           assert b.count('bool powerStreamBleLabReclaimIdleClientForCloud(bool& released)') == 1
           assert 'NimBLEDevice::deleteClient(sClient)' in b
           assert 'setCACert(ECOFLOW_CA_BUNDLE)' in p

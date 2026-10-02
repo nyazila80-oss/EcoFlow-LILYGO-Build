@@ -75,6 +75,12 @@ if diag_decl not in p:
     if p.count(trace_decl)!=1: raise RuntimeError('15AG diag trace declaration anchor missing/non-unique')
     p=p.replace(trace_decl,trace_decl+'\n'+diag_decl,1)
 
+timing_decl='static std::atomic<uint32_t> gCloudNotBeforeMs{0}, gCloudQueuedAtMs{0}, gCloudStartedAtMs{0};'
+job_decl='static std::atomic<uint32_t> gCloudStackMinBytes{0}, gCloudHeapBefore{0}, gCloudLargestBefore{0};'
+if timing_decl not in p:
+    if p.count(job_decl)!=1: raise RuntimeError('15AG HTTP quiet timing declaration anchor missing/non-unique')
+    p=p.replace(job_decl,job_decl+'\n'+timing_decl,1)
+
 reset_fn='''
 static void resetTlsDiagnosticsForJob(uint32_t jobId){
   gTlsDiagJobId.store(jobId,std::memory_order_relaxed);
@@ -94,6 +100,9 @@ static void resetTlsDiagnosticsForJob(uint32_t jobId){
   gTlsFailed8BitFree=0; gTlsFailed8BitLargest=0; gTlsFailedDmaFree=0; gTlsFailedDmaLargest=0;
   gTlsFailed32BitFree=0; gTlsFailed32BitLargest=0;
   gTlsAllocWindow.store(false,std::memory_order_release);
+  gCloudQueuedAtMs.store(millis(),std::memory_order_relaxed);
+  gCloudStartedAtMs.store(0,std::memory_order_relaxed);
+  gCloudNotBeforeMs.store(millis()+750U,std::memory_order_release);
   { ApiLock lk(pdMS_TO_TICKS(50)); if(lk.held){ psApiState.lastHttpCode=-1; psApiState.lastResponseBytes=0; } }
 }
 '''
@@ -109,6 +118,18 @@ if queue_new not in p:
     if p.count(queue_old)!=1: raise RuntimeError('15AG queue reset anchor missing/non-unique')
     p=p.replace(queue_old,queue_new,1)
 
+loop_old='void powerStreamApiLoopTick(){ if(gJobPending.load(std::memory_order_acquire)) runCloudJobOnLoopTask(); }'
+loop_new='''void powerStreamApiLoopTick(){
+  if(!gJobPending.load(std::memory_order_acquire)) return;
+  const uint32_t notBefore=gCloudNotBeforeMs.load(std::memory_order_acquire);
+  if((int32_t)(millis()-notBefore)<0) return;
+  gCloudStartedAtMs.store(millis(),std::memory_order_relaxed);
+  runCloudJobOnLoopTask();
+}'''
+if loop_new not in p:
+    if p.count(loop_old)!=1: raise RuntimeError('15AG HTTP quiet loop anchor missing/non-unique')
+    p=p.replace(loop_old,loop_new,1)
+
 # Mark a real TLS GET attempt only after the preflight gate has passed.
 get_anchor='if(method=="GET") {\n    gTlsFailedAllocCount.store(0,std::memory_order_relaxed);'
 get_mark='if(method=="GET") {\n    gTlsAttemptedThisJob.store(true,std::memory_order_relaxed);\n    gTlsFailedAllocCount.store(0,std::memory_order_relaxed);'
@@ -123,6 +144,12 @@ if 'tls_attempted_this_job' not in p:
     if p.count(json_anchor)!=1: raise RuntimeError('15AG JSON ownership anchor missing/non-unique')
     p=p.replace(json_anchor,json_new,1)
 
+json_timing_anchor='",\\\"pending\\\":"+(pending?"true":"false")+'
+json_timing_new='",\\\"cloud_queued_at_ms\\\":"+String(gCloudQueuedAtMs.load())+",\\\"cloud_started_at_ms\\\":"+String(gCloudStartedAtMs.load())+",\\\"cloud_queue_to_start_ms\\\":"+String(gCloudStartedAtMs.load()?gCloudStartedAtMs.load()-gCloudQueuedAtMs.load():0)+",\\\"http_quiet_window_ms\\\":750,\\\"pending\\\":"+(pending?"true":"false")+'
+if 'http_quiet_window_ms' not in p:
+    if p.count(json_timing_anchor)!=1: raise RuntimeError('15AG HTTP quiet JSON anchor missing/non-unique')
+    p=p.replace(json_timing_anchor,json_timing_new,1)
+
 code=re.sub(r'//[^\n]*|/\*.*?\*/','',p+'\n'+b,flags=re.S)
 for bad in ('setInsecure(', 'MBEDTLS_SSL_VERIFY_NONE'):
     if bad in code: raise RuntimeError('15AG security invariant: '+bad)
@@ -136,6 +163,8 @@ if new_ver not in p: raise RuntimeError('15AG provenance missing')
 if p.count('resetTlsDiagnosticsForJob(n)')!=1: raise RuntimeError('15AG per-job diag reset missing/duplicated')
 if p.count('gTlsAttemptedThisJob.store(true')!=1: raise RuntimeError('15AG TLS attempt marker missing/duplicated')
 if 'tls_diag_job_id' not in p or 'tls_attempted_this_job' not in p: raise RuntimeError('15AG JSON ownership fields missing')
+if p.count('gCloudNotBeforeMs.store(millis()+750U')!=1: raise RuntimeError('15AG HTTP quiet window missing/duplicated')
+if p.count('http_quiet_window_ms')!=1: raise RuntimeError('15AG HTTP quiet JSON field missing/duplicated')
 
 ble.write_text(b,encoding='utf-8')
 api.write_text(p,encoding='utf-8')
