@@ -87,8 +87,13 @@ if h.count(stop_member)!=1: raise RuntimeError('15Z AB7 final invariant: stopGen
 if re.search(r'gTls15zSlotReadyPreTlsPreTls|tls15z_slot_ready_pre_tls_pre_tls',p): raise RuntimeError('15Z AB7 idempotence invariant: repeated slot-ready suffix')
 for x in ('stopGeneration','sAuxStopGeneration','tls15z_stop_generation_before','tls15z_stop_generation_after','tls15z_slot_ready_pre_tls'):
     if x not in h+j+p: raise RuntimeError('15Z AB7 composition invariant missing: '+x)
-if not ('9.36.7.15Z-MEMORY-RELIEF-AB7' in p or '9.36.7.15Z-MEMORY-RELIEF-AB8' in p):
-    raise RuntimeError('15Z AB7 provenance invariant: neither AB7 nor later AB8 provenance present')
+# Repeated PlatformIO pre-script passes may see downstream AB8 or 15AF provenance.
+# Those are valid descendants of AB7; require exactly one recognized version,
+# rather than forcing the intermediate AB7 label to be restored.
+versions=('9.36.7.15Z-MEMORY-RELIEF-AB7','9.36.7.15Z-MEMORY-RELIEF-AB8','9.36.7.15AF-NO-AUX-RESERVATION')
+present=[v for v in versions if v in p]
+if len(present)!=1:
+    raise RuntimeError('15Z AB7 provenance invariant: expected exactly one AB7-or-later provenance, got '+repr(present))
 
 jkh.write_text(h,encoding='utf-8'); jkc.write_text(j,encoding='utf-8'); cpp.write_text(p,encoding='utf-8')
-print('[15Z-AB7] explicit stop provenance + confirmed advertising restart + composable/idempotent provenance applied')
+print('[15Z-AB7] explicit stop provenance + confirmed advertising restart + downstream-idempotent provenance applied')
