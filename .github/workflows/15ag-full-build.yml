@@ -31,18 +31,38 @@ jobs:
             echo "===== 15AG RUN $f ====="
             python "$f"
           done
-      - name: Full clean USB
-        run: pio run -e lilygo_tcan485 -t fullclean
-      - name: Build USB
-        run: pio run -e lilygo_tcan485
-      - name: Build OTA
-        run: pio run -e lilygo_tcan485_ota
-      - name: Build SPIFFS USB
-        run: pio run -e lilygo_tcan485 -t buildfs
-      - name: Build SPIFFS OTA
-        run: pio run -e lilygo_tcan485_ota -t buildfs
-      - name: Verify generated 15AG solution
+      # PlatformIO pre-scripts intentionally materialize the staged AB6->AB7->AB8
+      # ->15AE->15AF->15AG source for one invocation. Do not run `pio ... fullclean`
+      # as a separate invocation: that would mutate tracked source once and make the
+      # following build execute the transformation chain a second time.
+      - name: Clean build directories without running pre-scripts
         run: |
+          rm -rf .pio/build .pio/libdeps
+          git reset --hard "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
+      - name: Build USB from pristine source
+        run: |
+          git reset --hard "$GITHUB_SHA"
+          pio run -e lilygo_tcan485
+      - name: Build OTA from pristine source
+        run: |
+          git reset --hard "$GITHUB_SHA"
+          pio run -e lilygo_tcan485_ota
+      - name: Build SPIFFS USB from pristine source
+        run: |
+          git reset --hard "$GITHUB_SHA"
+          pio run -e lilygo_tcan485 -t buildfs
+      - name: Build SPIFFS OTA from pristine source
+        run: |
+          git reset --hard "$GITHUB_SHA"
+          pio run -e lilygo_tcan485_ota -t buildfs
+      - name: Materialize and verify generated 15AG solution
+        run: |
+          set -euo pipefail
+          git reset --hard "$GITHUB_SHA"
+          # A normal no-op build invocation applies the pre-script chain exactly once
+          # to pristine source; verification then inspects that generated state.
+          pio run -e lilygo_tcan485_ota
           python - <<'PY'
           from pathlib import Path
           import re
