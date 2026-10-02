@@ -8,9 +8,8 @@ jkc=root/'src'/'jk_ble_proxy.cpp'
 cpp=root/'src'/'powerstream_api.cpp'
 h=jkh.read_text(encoding='utf-8'); j=jkc.read_text(encoding='utf-8'); p=cpp.read_text(encoding='utf-8')
 
-# AB7 hardening: add explicit stop-generation provenance. This script composes
-# with the immediately preceding AB6 generator and later AB8/15AF/15AG scripts.
-# Composition contract: fresh-AB6/repeated-descendant composition.
+# AB7 hardening: add explicit stop-generation provenance. Compose with both the
+# legacy sAuxGeneration snapshot and current AB6 seqlock (sAuxDiagGeneration/2).
 stop_member='uint32_t stopGeneration=0;'
 if stop_member not in h:
     anchor='uint32_t generation=0;'
@@ -19,31 +18,49 @@ if stop_member not in h:
 elif h.count(stop_member)!=1:
     raise RuntimeError('15Z AB7 stopGeneration member duplicated')
 
-# The repository baseline declares all aux telemetry atomics in one statement;
-# older generated snapshots may already have the split sAuxGeneration declaration.
-# Support both forms, but require exactly one semantic anchor.
 if 'sAuxStopGeneration' not in j:
     old_anchor='static std::atomic<uint32_t> sAuxGeneration{0};'
     current_anchor='sAuxDiagGeneration{0};'
     if old_anchor in j:
         j=j.replace(old_anchor,old_anchor+'\nstatic std::atomic<uint32_t> sAuxStopGeneration{0};',1)
     elif j.count(current_anchor)==1:
-        j=j.replace(current_anchor,current_anchor+'\nstatic std::atomic<uint32_t> sAuxStopGeneration{0};',1)
+        # Current baseline keeps several atomics in one declaration; append an
+        # independent provenance counter without rewriting that declaration.
+        line_end=j.find('\n',j.index(current_anchor))
+        if line_end<0: raise RuntimeError('15Z AB7 aux declaration line end missing')
+        j=j[:line_end+1]+'static std::atomic<uint32_t> sAuxStopGeneration{0};\n'+j[line_end+1:]
     else:
         raise RuntimeError('15Z AB7 aux stop generation anchor missing/non-unique')
 
-old='out.generation=sAuxGeneration.load(std::memory_order_relaxed);'
-new=old+'\n  out.stopGeneration=sAuxStopGeneration.load(std::memory_order_relaxed);'
-if new not in j:
-    if old in j: j=j.replace(old,new,1)
-    else: raise RuntimeError('15Z AB7 aux snapshot generation anchor missing')
+# Snapshot composition. Current AB6 publishes generation only after a stable
+# seqlock read as d.generation=after/2U; legacy descendants used out.generation.
+stop_snap='d.stopGeneration=sAuxStopGeneration.load(std::memory_order_relaxed);'
+legacy_stop_snap='out.stopGeneration=sAuxStopGeneration.load(std::memory_order_relaxed);'
+if stop_snap not in j and legacy_stop_snap not in j:
+    current_candidates=(
+        'if(before==after){d.generation=after/2U;return d;}',
+        'if(before==after){ d.generation=after/2U; return d; }',
+    )
+    found=[x for x in current_candidates if x in j]
+    if len(found)==1:
+        old=found[0]
+        compact='if(before==after){d.generation=after/2U;d.stopGeneration=sAuxStopGeneration.load(std::memory_order_relaxed);return d;}'
+        j=j.replace(old,compact,1)
+    else:
+        old='out.generation=sAuxGeneration.load(std::memory_order_relaxed);'
+        if old in j:
+            j=j.replace(old,old+'\n  '+legacy_stop_snap,1)
+        else:
+            raise RuntimeError('15Z AB7 aux snapshot generation anchor missing')
 
+# Stop provenance increments only when the owner actually closes advertising.
+# This is stronger than incrementing on reservation bookkeeping and composes
+# directly with current AB6, which has no sAuxGeneration counter.
 inc='sAuxStopGeneration.fetch_add(1,std::memory_order_relaxed);'
 if inc not in j:
-    candidates=('sAuxGeneration.fetch_add(1,std::memory_order_relaxed);','sAuxGeneration.fetch_add(1, std::memory_order_relaxed);')
-    found=[x for x in candidates if x in j]
-    if len(found)!=1: raise RuntimeError('15Z AB7 stop increment anchor missing/non-unique')
-    j=j.replace(found[0],found[0]+'\n  '+inc,1)
+    stop_anchor='NimBLEDevice::stopAdvertising();'
+    if j.count(stop_anchor)!=1: raise RuntimeError('15Z AB7 stopAdvertising anchor missing/non-unique')
+    j=j.replace(stop_anchor,stop_anchor+'\n        '+inc,1)
 
 for decl in ('static std::atomic<uint32_t> gTls15zStopGenerationBefore{0};','static std::atomic<uint32_t> gTls15zStopGenerationAfter{0};'):
     if decl not in p:
@@ -81,4 +98,4 @@ for x in ('stopGeneration','sAuxStopGeneration','tls15z_stop_generation_before',
     if x not in h+j+p: raise RuntimeError('15Z AB7 composition invariant missing: '+x)
 
 jkh.write_text(h,encoding='utf-8'); jkc.write_text(j,encoding='utf-8'); cpp.write_text(p,encoding='utf-8')
-print('[15Z-AB7] explicit stop provenance + current/legacy aux-anchor composition applied')
+print('[15Z-AB7] explicit stop provenance + AB6 seqlock/legacy composition applied')
