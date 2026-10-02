@@ -42,7 +42,8 @@ for decl in ('static std::atomic<uint32_t> gTls15zStopGenerationBefore{0};','sta
         if anchor not in p: raise RuntimeError('15Z AB7 powerstream provenance declaration anchor missing')
         p=p.replace(anchor,anchor+'\n'+decl,1)
 
-old_obs='const bool tls15zStopObserved=tls15zAuxAfter.afterStopFree!=0;'
+# Keep the exact proven AB6 source oracle expected by host_sim_15z_memory_relief.
+old_obs='const bool tls15zStopObserved=tls15zOwnerRan && tls15zAuxAfter.afterStopFree!=0;'
 new_obs='const bool tls15zStopObserved=tls15zOwnerRan && tls15zAuxAfter.stopGeneration!=tls15zAuxBefore.stopGeneration;'
 if old_obs in p: p=p.replace(old_obs,new_obs,1)
 elif new_obs not in p: raise RuntimeError('15Z AB7 stop provenance expression missing')
@@ -52,13 +53,12 @@ json_new=json_anchor+'\\"tls15z_stop_generation_before\\":"+String(gTls15zStopGe
 if json_anchor in p and json_new not in p: p=p.replace(json_anchor,json_new,1)
 elif json_new not in p: raise RuntimeError('15Z AB7 JSON provenance anchor missing')
 
-# On a fresh PlatformIO invocation AB6 has just run and therefore the source
-# provenance is AB6. Promote it here to AB7. On repeated passes accept exactly one
-# recognized descendant without rolling it backwards.
+# Fresh pass: AB6 runs immediately before AB7, so promote AB6 -> AB7 here.
+# Repeated pass: preserve exactly one downstream provenance without downgrade.
 versions=('9.36.7.15Z-MEMORY-RELIEF-AB6','9.36.7.15Z-MEMORY-RELIEF-AB7','9.36.7.15Z-MEMORY-RELIEF-AB8','9.36.7.15AF-NO-AUX-RESERVATION','9.36.7.15AG-TLS-PEAK-FIX')
 present=[v for v in versions if v in p]
 if present==['9.36.7.15Z-MEMORY-RELIEF-AB6']:
-    p=p.replace('9.36.7.15Z-MEMORY-RELIEF-AB6','9.36.7.15Z-MEMORY-RELIEF-AB7')
+    p=p.replace('9.36.7.15Z-MEMORY-RELIEF-AB6','9.36.7.15Z-MEMORY-RELIEF-AB7',1)
     present=['9.36.7.15Z-MEMORY-RELIEF-AB7']
 if len(present)!=1:
     raise RuntimeError('15Z AB7 provenance invariant: expected exactly one AB6/AB7-or-later provenance, got '+repr(present))
