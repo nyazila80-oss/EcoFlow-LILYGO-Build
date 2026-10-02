@@ -4,8 +4,8 @@ from pathlib import Path
 import re
 
 # AB8 admission probe: observation only. Do not alter BLE/TLS behavior.
-# We need to prove why jkBleProxyReserveAuxConnection() returns before the
-# Arduino-loop owner advances aux generation / stops advertising.
+# Repeated PlatformIO pre-script passes may see the downstream 15AF no-aux
+# state, where the reservation call is deliberately absent.
 proj=Path(env['PROJECT_DIR'])
 cpp=proj/'src'/'powerstream_api.cpp'
 p=cpp.read_text(encoding='utf-8')
@@ -40,9 +40,18 @@ new='''bool tls15zAttempted=false, tls15zReserved=false;
     }
     if(!jkBleProxyAppConnected() && !jkBleProxyEventsPending()){ tls15zAttempted=true; tls15zReserved=jkBleProxyReserveAuxConnection(); }
     gTls15zAdmAttempted.store(tls15zAttempted?1:0);'''
+
+# 15AF downstream marker/provenance. 15AF intentionally keeps the admission
+# telemetry but replaces the reservation attempt with attempted=0.
+af_marker='gTls15zAdmAttempted.store(0);'
+af_version='9.36.7.15AF-NO-AUX-RESERVATION'
+downstream_af=(af_marker in p and af_version in p)
+
 if old in p:
     if p.count(old)!=1: raise RuntimeError('AB8 admission call anchor non-unique')
     p=p.replace(old,new,1)
+elif downstream_af:
+    if p.count(af_marker)!=1: raise RuntimeError('AB8 admission/15AF marker non-unique')
 elif 'gTls15zAdmAttempted.store' not in p:
     raise RuntimeError('AB8 admission call anchor missing')
 
@@ -62,19 +71,25 @@ if 'tls15z_adm_initialized' not in p:
             '\\"tls15z_adm_attempted\\":"+String(gTls15zAdmAttempted.load())+",')
     p=p[:pos]+fields+p[pos:]
 
-if 'jkBleProxyReserveAuxConnection();' not in p: raise RuntimeError('AB8 handshake missing')
-if 'jkBleProxyReserveAuxConnectionOwner();' in p: raise RuntimeError('AB8 direct owner regression')
+code=re.sub(r'//[^\n]*|/\*.*?\*/','',p,flags=re.S)
+if downstream_af:
+    if 'jkBleProxyReserveAuxConnection();' in code:
+        raise RuntimeError('AB8 admission/15AF invariant: executable reservation restored')
+    if af_version not in p:
+        raise RuntimeError('AB8 admission/15AF provenance missing')
+else:
+    if 'jkBleProxyReserveAuxConnection();' not in code:
+        raise RuntimeError('AB8 handshake missing')
+if 'jkBleProxyReserveAuxConnectionOwner();' in code:
+    raise RuntimeError('AB8 direct owner regression')
 for key in ('tls15z_adm_initialized','tls15z_adm_app_connected','tls15z_adm_bms_connected',
             'tls15z_adm_events_pending','tls15z_adm_safe_hold','tls15z_adm_startup_enabled',
             'tls15z_adm_startup_applied','tls15z_adm_aux_reserved_before',
             'tls15z_adm_slot_ready_before','tls15z_adm_attempted'):
     if p.count('\\"'+key+'\\"')!=1: raise RuntimeError('AB8 admission JSON invariant: '+key)
 
-def strip_cpp_comments(text):
-    return re.sub(r'//[^\n]*|/\*.*?\*/','',text,flags=re.S)
-code=strip_cpp_comments(p)
 if re.search(r'\bsetInsecure\s*\(',code): raise RuntimeError('AB8 admission security invariant: setInsecure')
 if 'MBEDTLS_SSL_VERIFY_NONE' in code: raise RuntimeError('AB8 admission security invariant: VERIFY_NONE')
 
 cpp.write_text(p,encoding='utf-8')
-print('[15Z-AB8-ADMISSION] read-only reservation admission provenance enabled')
+print('[15Z-AB8-ADMISSION] read-only admission provenance verified (AB8 reservation or downstream 15AF no-aux)')
