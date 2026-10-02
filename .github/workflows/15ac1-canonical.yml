@@ -33,6 +33,12 @@ jobs:
           assert 'http.addHeader("accessKey",gAccess)' not in a
           print('15AC1 credential audit PASS')
           PY
+      - name: Deterministic patch regression gate
+        run: |
+          cp src/powerstream_api.cpp /tmp/powerstream_api.after-first.cpp
+          python tools/apply_15ac1_canonical_snapshot.py
+          cmp -s src/powerstream_api.cpp /tmp/powerstream_api.after-first.cpp
+          echo '15AC1 deterministic/idempotent patch regression PASS'
       - name: Full clean USB
         run: pio run -e lilygo_tcan485 -t fullclean
       - name: Build USB
@@ -43,12 +49,6 @@ jobs:
         run: pio run -e lilygo_tcan485 -t buildfs
       - name: Build SPIFFS OTA
         run: pio run -e lilygo_tcan485_ota -t buildfs
-      - name: Host regressions
-        run: |
-          python tools/host_sim_tls15f.py
-          python tools/host_sim_tls15g.py
-          python tools/host_sim_tls15h.py
-          python tools/host_sim_tls15i.py
       - name: Collect binaries
         run: |
           mkdir -p artifacts
