@@ -1,0 +1,74 @@
+name: 15AG TLS Peak Fix Full Build
+on:
+  push:
+    branches: ["solution/9.36.7.15AG-tls-peak-fix"]
+  workflow_dispatch:
+
+jobs:
+  full-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Provenance
+        run: |
+          echo "15AG_HEAD=$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
+          git log -1 --oneline
+      - name: Python syntax gate
+        run: python -m compileall -q tools
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Bootstrap pinned packages
+        run: pio pkg install -e lilygo_tcan485
+      - name: Existing audits and host simulations
+        run: |
+          set -euo pipefail
+          for f in tools/host_sim_*.py tools/audit_*.py; do
+            echo "===== 15AG RUN $f ====="
+            python "$f"
+          done
+      - name: Full clean USB
+        run: pio run -e lilygo_tcan485 -t fullclean
+      - name: Build USB
+        run: pio run -e lilygo_tcan485
+      - name: Build OTA
+        run: pio run -e lilygo_tcan485_ota
+      - name: Build SPIFFS USB
+        run: pio run -e lilygo_tcan485 -t buildfs
+      - name: Build SPIFFS OTA
+        run: pio run -e lilygo_tcan485_ota -t buildfs
+      - name: Verify generated 15AG solution
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('src/powerstream_api.cpp').read_text()
+          b=Path('src/powerstream_ble_lab.cpp').read_text()
+          code=re.sub(r'//[^\n]*|/\*.*?\*/','',p+'\n'+b,flags=re.S)
+          assert '9.36.7.15AG-TLS-PEAK-FIX' in p
+          assert 'TLS_GET_MIN_LARGEST8 = 32768' in p
+          assert 'powerStreamBleLabReclaimIdleClientForCloud(psBleReleased)' in p
+          assert b.count('bool powerStreamBleLabReclaimIdleClientForCloud(bool& released)') == 1
+          assert 'NimBLEDevice::deleteClient(sClient)' in b
+          assert 'setCACert(ECOFLOW_CA_BUNDLE)' in p
+          assert not re.search(r'\bsetInsecure\s*\(',code)
+          assert 'MBEDTLS_SSL_VERIFY_NONE' not in code
+          print('15AG SOLUTION TARGET PASS')
+          PY
+      - name: Collect original-name OTA artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cp .pio/build/lilygo_tcan485_ota/firmware.bin artifacts/firmware.bin
+          cp .pio/build/lilygo_tcan485_ota/spiffs.bin artifacts/spiffs.bin
+          sha256sum artifacts/firmware.bin artifacts/spiffs.bin | tee artifacts/SHA256SUMS.txt
+          printf '%s\n' "$GITHUB_SHA" > artifacts/COMMIT.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 15AG-original-files-${{ github.sha }}
+          path: artifacts/
+          retention-days: 14
