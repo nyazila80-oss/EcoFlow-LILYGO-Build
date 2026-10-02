@@ -41,7 +41,11 @@ else:
     else:
         raise RuntimeError('15Z AB8 reservation call anchor missing or malformed')
 
-# Canonicalize AB7 naming after arbitrary repeated pre-script passes.
+# AB6 deliberately emits the unsuffixed slot-ready telemetry. AB8 owns the
+# transition to the canonical pre-TLS name. First promote the plain form, then
+# collapse any repeated suffixes from repeated pre-script passes.
+p=re.sub(r'\bgTls15zSlotReady\b', 'gTls15zSlotReadyPreTls', p)
+p=re.sub(r'\btls15z_slot_ready\b', 'tls15z_slot_ready_pre_tls', p)
 p=re.sub(r'gTls15zSlotReady(?:PreTls)+', 'gTls15zSlotReadyPreTls', p)
 p=re.sub(r'tls15z_slot_ready(?:_pre_tls)+', 'tls15z_slot_ready_pre_tls', p)
 
