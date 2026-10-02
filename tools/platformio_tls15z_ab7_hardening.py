@@ -55,18 +55,28 @@ if stop_snap not in j and legacy_stop_snap not in j:
         elif len(legacy)>1:
             raise RuntimeError('15Z AB7 legacy aux snapshot generation anchor non-unique')
         else:
-            # Fail closed, but include enough structural evidence in CI logs to
-            # diagnose a future generator drift without guessing another patch.
             has_seqlock=('sAuxDiagGeneration.load' in j)
             has_generation=('d.generation' in j)
             raise RuntimeError('15Z AB7 aux snapshot generation anchor missing; seqlock=%s generation=%s' % (has_seqlock,has_generation))
 
-# Stop provenance increments only when the owner actually closes advertising.
+# Stop provenance must describe the AB6 TLS reservation owner, not every BLE
+# advertising stop in the file. Scope the match to that function and fail
+# closed unless exactly one owner stop exists there.
 inc='sAuxStopGeneration.fetch_add(1,std::memory_order_relaxed);'
 if inc not in j:
-    stop_anchor='NimBLEDevice::stopAdvertising();'
-    if j.count(stop_anchor)!=1: raise RuntimeError('15Z AB7 stopAdvertising anchor missing/non-unique')
-    j=j.replace(stop_anchor,stop_anchor+'\n        '+inc,1)
+    owner_start='bool jkBleProxyReserveAuxConnectionOwner(){'
+    owner_end='bool jkBleProxyReserveAuxConnection(){'
+    if j.count(owner_start)!=1 or j.count(owner_end)!=1:
+        raise RuntimeError('15Z AB7 owner reservation function boundary missing/non-unique')
+    a=j.index(owner_start); b=j.index(owner_end,a+len(owner_start))
+    owner=j[a:b]
+    stop_re=re.compile(r'NimBLEDevice::stopAdvertising\s*\(\s*\)\s*;')
+    stops=list(stop_re.finditer(owner))
+    if len(stops)!=1:
+        raise RuntimeError('15Z AB7 owner stopAdvertising anchor missing/non-unique; owner=%d global=%d' % (len(stops),len(list(stop_re.finditer(j)))))
+    m=stops[0]
+    owner=owner[:m.end()]+'\n    '+inc+owner[m.end():]
+    j=j[:a]+owner+j[b:]
 
 for decl in ('static std::atomic<uint32_t> gTls15zStopGenerationBefore{0};','static std::atomic<uint32_t> gTls15zStopGenerationAfter{0};'):
     if decl not in p:
@@ -104,4 +114,4 @@ for x in ('stopGeneration','sAuxStopGeneration','tls15z_stop_generation_before',
     if x not in h+j+p: raise RuntimeError('15Z AB7 composition invariant missing: '+x)
 
 jkh.write_text(h,encoding='utf-8'); jkc.write_text(j,encoding='utf-8'); cpp.write_text(p,encoding='utf-8')
-print('[15Z-AB7] explicit stop provenance + robust AB6 seqlock/legacy composition applied')
+print('[15Z-AB7] explicit stop provenance + owner-scoped AB6 composition applied')
