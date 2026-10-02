@@ -3,13 +3,8 @@ Import('env')
 from pathlib import Path
 import re
 
-# AB8 is driven by the first real 15Z hardware run:
-# heavy_acquires=1 but stopGeneration stayed 0->0 because AB6 gated the
-# reservation on !BMS-connected and then called a synchronous helper from the
-# cloud worker. The existing jkBleProxyReserveAuxConnection() already provides
-# the correct REQUESTED -> Arduino-loop owner -> GRANTED handshake and is safe
-# while the real JK central link is connected (provided no phone/app occupies
-# the proxy slot). Keep NimBLE lifecycle intact: no deinit and no TLS weakening.
+# AB8 hardware fix. Repeated PlatformIO pre-script passes may encounter the
+# downstream 15AF no-aux A/B state; that is a valid descendant, not corruption.
 proj=Path(env['PROJECT_DIR'])
 cpp=proj/'src'/'powerstream_api.cpp'
 p=cpp.read_text(encoding='utf-8')
@@ -17,43 +12,44 @@ p=cpp.read_text(encoding='utf-8')
 old_call='''if(!jkBleProxyAppConnected() && !jkBleProxyBmsConnected() && !jkBleProxyEventsPending()){ tls15zAttempted=true; tls15zReserved=jkBleProxyReserveAuxConnectionOwner(); }'''
 new_call='''if(!jkBleProxyAppConnected() && !jkBleProxyEventsPending()){ tls15zAttempted=true; tls15zReserved=jkBleProxyReserveAuxConnection(); }'''
 aa_call='''if(gTls15zAdmInitialized.load()==1 && !jkBleProxyAppConnected() && !jkBleProxyEventsPending()){ tls15zAttempted=true; tls15zReserved=jkBleProxyReserveAuxConnection(); }'''
-if old_call in p:
-    if p.count(old_call)!=1: raise RuntimeError('15Z AB8 reservation call anchor non-unique')
-    p=p.replace(old_call,new_call,1)
-elif new_call in p:
-    # Already at the AB8 target state (normal repeated pre-script pass).
-    pass
-elif aa_call in p:
-    # 15AA intentionally tightens AB8 admission after the first environment by
-    # requiring the read-only admission snapshot to prove proxy initialization.
-    # USB and OTA share the source tree, so the OTA pre-script sees this form.
-    # It preserves the AB8 REQUESTED->loop-owner handshake and is therefore a
-    # valid downstream/idempotent state, not a malformed anchor.
-    if p.count(aa_call)!=1: raise RuntimeError('15Z AB8/15AA reservation anchor non-unique')
-    pass
-elif ('gTls15zAdmAttempted.store(tls15zAttempted?1:0);' in p and
-      'tls15zReserved=jkBleProxyReserveAuxConnection();' in p and
-      'jkBleProxyReserveAuxConnectionOwner();' not in p and
-      ('if(!jkBleProxyAppConnected() && !jkBleProxyEventsPending())' in p or
-       'if(gTls15zAdmInitialized.load()==1 && !jkBleProxyAppConnected() && !jkBleProxyEventsPending())' in p)):
-    # A later AB8 admission/15AA probe deliberately expands/tightens the exact
-    # new_call anchor with read-only provenance. Treat it as an idempotent no-op
-    # only when the complete AB8 handshake invariants are still present.
-    pass
-else:
-    raise RuntimeError('15Z AB8 reservation call anchor missing or malformed')
+# 15AF deliberately replaces the reservation/admission block with this stable
+# telemetry assignment. Detect it together with provenance to avoid accepting a
+# coincidental line elsewhere.
+af_marker='gTls15zAdmAttempted.store(0);'
+af_version='9.36.7.15AF-NO-AUX-RESERVATION'
 
-# AB7 used unrestricted substring replacement, so repeated pre-script passes
-# produced tls15z_slot_ready_pre_tls_pre_tls... . Canonicalize exactly once.
+if af_marker in p and af_version in p:
+    if p.count(af_marker)!=1:
+        raise RuntimeError('15Z AB8/15AF no-aux marker non-unique')
+    # Downstream target already applied: do not recreate the reservation call.
+    downstream_af=True
+else:
+    downstream_af=False
+    if old_call in p:
+        if p.count(old_call)!=1: raise RuntimeError('15Z AB8 reservation call anchor non-unique')
+        p=p.replace(old_call,new_call,1)
+    elif new_call in p:
+        pass
+    elif aa_call in p:
+        if p.count(aa_call)!=1: raise RuntimeError('15Z AB8/15AA reservation anchor non-unique')
+    elif ('gTls15zAdmAttempted.store(tls15zAttempted?1:0);' in p and
+          'tls15zReserved=jkBleProxyReserveAuxConnection();' in p and
+          'jkBleProxyReserveAuxConnectionOwner();' not in p and
+          ('if(!jkBleProxyAppConnected() && !jkBleProxyEventsPending())' in p or
+           'if(gTls15zAdmInitialized.load()==1 && !jkBleProxyAppConnected() && !jkBleProxyEventsPending())' in p)):
+        pass
+    else:
+        raise RuntimeError('15Z AB8 reservation call anchor missing or malformed')
+
+# Canonicalize AB7 naming after arbitrary repeated pre-script passes.
 p=re.sub(r'gTls15zSlotReady(?:PreTls)+', 'gTls15zSlotReadyPreTls', p)
 p=re.sub(r'tls15z_slot_ready(?:_pre_tls)+', 'tls15z_slot_ready_pre_tls', p)
 
-# Version provenance for the hardware-derived fix.
-p=p.replace('9.36.7.15Z-MEMORY-RELIEF-AB7','9.36.7.15Z-MEMORY-RELIEF-AB8')
+# Do not overwrite downstream 15AF provenance on a repeated pass.
+if not downstream_af:
+    p=p.replace('9.36.7.15Z-MEMORY-RELIEF-AB7','9.36.7.15Z-MEMORY-RELIEF-AB8')
 
-# Fail-hard invariants. AB8 must never regress to the cloud-worker direct owner
-# call, must not block relief merely because the real JK BMS is connected, and
-# must expose one canonical JSON field after arbitrary repeated script passes.
+# Fail-hard invariants shared by AB8 and its 15AF descendant.
 if 'jkBleProxyReserveAuxConnectionOwner();' in p:
     raise RuntimeError('15Z AB8 ownership invariant: direct owner call survives in TLS path')
 if '!jkBleProxyBmsConnected() && !jkBleProxyEventsPending()' in p:
@@ -62,8 +58,17 @@ if p.count('\\"tls15z_slot_ready_pre_tls\\"') != 1:
     raise RuntimeError('15Z AB8 JSON invariant: canonical slot-ready field must occur exactly once')
 if re.search(r'tls15z_slot_ready_pre_tls_pre_tls',p):
     raise RuntimeError('15Z AB8 idempotence invariant: repeated pre_tls suffix survives')
-if '9.36.7.15Z-MEMORY-RELIEF-AB8' not in p:
-    raise RuntimeError('15Z AB8 provenance invariant missing')
+
+if downstream_af:
+    # 15AF's purpose is specifically that no executable aux reservation survives.
+    code_no_comments=re.sub(r'//[^\n]*|/\*.*?\*/','',p,flags=re.S)
+    if 'jkBleProxyReserveAuxConnection();' in code_no_comments:
+        raise RuntimeError('15Z AB8/15AF invariant: executable aux reservation unexpectedly restored')
+    if af_version not in p:
+        raise RuntimeError('15Z AB8/15AF provenance missing')
+else:
+    if '9.36.7.15Z-MEMORY-RELIEF-AB8' not in p:
+        raise RuntimeError('15Z AB8 provenance invariant missing')
 
 def strip_cpp_comments(text):
     return re.sub(r'//[^\n]*|/\*.*?\*/','',text,flags=re.S)
@@ -74,4 +79,4 @@ if 'MBEDTLS_SSL_VERIFY_NONE' in code:
     raise RuntimeError('15Z AB8 security invariant: executable VERIFY_NONE')
 
 cpp.write_text(p,encoding='utf-8')
-print('[15Z-AB8] TLS relief routed through REQUESTED->loop-owner handshake; slot-ready provenance canonicalized')
+print('[15Z-AB8] REQUESTED->loop-owner state or downstream 15AF no-aux state verified; provenance canonicalized')
