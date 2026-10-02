@@ -1,0 +1,64 @@
+name: 15AC1 canonical credential snapshot
+on:
+  push:
+    branches: ["fix/9.36.7.15AC1-canonical-snapshot"]
+  workflow_dispatch:
+
+jobs:
+  build-and-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Apply canonical 15AC1 snapshot over 15D generator
+        run: python tools/apply_15ac1_canonical_snapshot.py
+      - name: Apply 15F generated-source gate
+        run: python tools/apply_tls15f_generated_source_gate.py
+      - name: Verify request-local credential use
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('src/powerstream_api.cpp').read_text()
+          a=s[s.index('static bool authHeaders('):s.index('\n}\n\nclass BoundedApiResponse',s.index('static bool authHeaders('))]
+          req=['String requestAccess;','String requestSecret;','requestAccess=gAccess;','requestSecret=gSecret;',
+               'hmac256(signBase,requestSecret)','http.addHeader("accessKey",requestAccess)','"accessKey="+requestAccess']
+          for x in req:
+              assert x in a, x
+          assert a.count('gAccess') == 1, a.count('gAccess')
+          assert a.count('gSecret') == 1, a.count('gSecret')
+          print('15AC1 source gate PASS')
+          PY
+      - name: Full clean USB
+        run: pio run -e lilygo_tcan485 -t fullclean
+      - name: Build USB
+        run: pio run -e lilygo_tcan485
+      - name: Build OTA
+        run: pio run -e lilygo_tcan485_ota
+      - name: Build SPIFFS USB
+        run: pio run -e lilygo_tcan485 -t buildfs
+      - name: Build SPIFFS OTA
+        run: pio run -e lilygo_tcan485_ota -t buildfs
+      - name: Credential audit
+        run: python tools/credential_flow_audit.py
+      - name: Host regressions
+        run: |
+          python tools/host_sim_tls15f.py
+          python tools/host_sim_tls15g.py
+          python tools/host_sim_tls15h.py
+          python tools/host_sim_tls15i.py
+      - name: Collect binaries
+        run: |
+          mkdir -p artifacts
+          cp .pio/build/lilygo_tcan485/firmware.bin artifacts/firmware-usb.bin
+          cp .pio/build/lilygo_tcan485/spiffs.bin artifacts/spiffs-usb.bin
+          cp .pio/build/lilygo_tcan485_ota/firmware.bin artifacts/firmware-ota.bin
+          cp .pio/build/lilygo_tcan485_ota/spiffs.bin artifacts/spiffs-ota.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 15AC1-canonical-build
+          path: artifacts/
