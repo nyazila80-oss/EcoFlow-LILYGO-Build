@@ -17,7 +17,7 @@ jobs:
         run: pip install platformio
       - name: Apply canonical 15AC1 snapshot over 15D generator
         run: python tools/apply_15ac1_canonical_snapshot.py
-      - name: Verify request-local credential use
+      - name: Credential audit - request-local snapshot
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -29,7 +29,9 @@ jobs:
               assert x in a, x
           assert a.count('gAccess') == 1, a.count('gAccess')
           assert a.count('gSecret') == 1, a.count('gSecret')
-          print('15AC1 source gate PASS')
+          assert 'hmac256(signBase,gSecret)' not in a
+          assert 'http.addHeader("accessKey",gAccess)' not in a
+          print('15AC1 credential audit PASS')
           PY
       - name: Full clean USB
         run: pio run -e lilygo_tcan485 -t fullclean
@@ -41,8 +43,6 @@ jobs:
         run: pio run -e lilygo_tcan485 -t buildfs
       - name: Build SPIFFS OTA
         run: pio run -e lilygo_tcan485_ota -t buildfs
-      - name: Credential audit
-        run: python tools/credential_flow_audit.py
       - name: Host regressions
         run: |
           python tools/host_sim_tls15f.py
