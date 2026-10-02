@@ -4,12 +4,17 @@ on:
     branches: ["diag/9.36.7.15AC3-ble-ram-lifecycle"]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   audit-build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: diag/9.36.7.15AC3-ble-ram-lifecycle
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -17,6 +22,28 @@ jobs:
         run: pip install platformio
       - name: Apply canonical AC1 source generation
         run: python tools/apply_15ac1_canonical_snapshot.py
+      - name: Verify and persist canonical generated source
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('src/powerstream_api.cpp').read_text()
+          a=s[s.index('static bool authHeaders('):s.index('\n}\n\nclass BoundedApiResponse',s.index('static bool authHeaders('))]
+          required=['String requestAccess;','String requestSecret;','requestAccess=gAccess;','requestSecret=gSecret;',
+                    'hmac256(signBase,requestSecret)','http.addHeader("accessKey",requestAccess)','"accessKey="+requestAccess']
+          for token in required: assert token in a, token
+          assert a.count('gAccess') == 1
+          assert a.count('gSecret') == 1
+          print('15AC1 persisted-source gate PASS')
+          PY
+          if ! git diff --quiet -- src/powerstream_api.cpp tools/apply_tls15d_runtime_patch.py; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src/powerstream_api.cpp tools/apply_tls15d_runtime_patch.py
+            git commit -m "15AC3: persist canonical AC1 credential snapshot source"
+            git push origin HEAD:diag/9.36.7.15AC3-ble-ram-lifecycle
+          else
+            echo 'Canonical AC1 source already persisted'
+          fi
       - name: BLE RAM lifecycle source audit
         run: |
           python - <<'PY'
@@ -29,14 +56,12 @@ jobs:
             'BLE/JK coexistence':['JK','BLE'],
             'ownership/admission':['heavy','owner','slot_ready'],
           }
-          failed=[]
-          low=text.lower()
+          failed=[]; low=text.lower()
           for name,tokens in groups.items():
             hit=[t for t in tokens if t.lower() in low]
             print(name, 'tokens=', hit)
             if len(hit)<2: failed.append((name,hit))
-          if failed:
-            raise SystemExit('15AC3 source audit missing evidence: '+repr(failed))
+          if failed: raise SystemExit('15AC3 source audit missing evidence: '+repr(failed))
           print('15AC3 BLE/RAM/lifecycle source audit PASS')
           PY
       - name: Full clean USB
