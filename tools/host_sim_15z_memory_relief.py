@@ -65,8 +65,12 @@ assert "p=p.replace('tls15z_slot_ready','tls15z_slot_ready_pre_tls')" not in har
 assert '9.36.7.15Z-MEMORY-RELIEF-AB8' in ab8
 
 # Composition is fail-hard and USB/OTA share the same inherited pre-script chain.
-for msg in ('stopGeneration header anchor','aux stop generation anchor','aux snapshot generation anchor','stop increment anchor','powerstream provenance declaration anchor','stop provenance expression','JSON provenance anchor'):
+# Audit each current AB7 mutation anchor against the condition that makes it fail closed.
+for msg in ('stopGeneration header anchor','aux stop generation anchor','aux snapshot generation anchor','powerstream provenance declaration anchor','stop provenance expression','JSON provenance anchor'):
     assert msg in hard,msg
+assert "stop_anchor='NimBLEDevice::stopAdvertising();'" in hard
+assert "if j.count(stop_anchor)!=1: raise RuntimeError('15Z AB7 stopAdvertising anchor missing/non-unique')" in hard
+assert "j=j.replace(stop_anchor,stop_anchor+'\\n        '+inc,1)" in hard
 assert 'member duplicated' in hard
 assert 'expected exactly one AB6/AB7-or-later provenance' in hard
 
