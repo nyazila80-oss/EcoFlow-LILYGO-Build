@@ -76,10 +76,9 @@ if diag_decl not in p:
     p=p.replace(trace_decl,trace_decl+'\n'+diag_decl,1)
 
 timing_decl='static std::atomic<uint32_t> gCloudNotBeforeMs{0}, gCloudQueuedAtMs{0}, gCloudStartedAtMs{0};'
-job_decl='static std::atomic<uint32_t> gCloudStackMinBytes{0}, gCloudHeapBefore{0}, gCloudLargestBefore{0};'
 if timing_decl not in p:
-    if p.count(job_decl)!=1: raise RuntimeError('15AG HTTP quiet timing declaration anchor missing/non-unique')
-    p=p.replace(job_decl,job_decl+'\n'+timing_decl,1)
+    if p.count(diag_decl)!=1: raise RuntimeError('15AG HTTP quiet timing declaration anchor missing/non-unique')
+    p=p.replace(diag_decl,diag_decl+'\n'+timing_decl,1)
 
 reset_fn='''
 static void resetTlsDiagnosticsForJob(uint32_t jobId){
