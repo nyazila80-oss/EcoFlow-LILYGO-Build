@@ -39,8 +39,10 @@ if 'bool powerStreamBleLabReclaimIdleClientForCloud(bool& released)' not in b:
 elif b.count('bool powerStreamBleLabReclaimIdleClientForCloud(bool& released)')!=1:
     raise RuntimeError('15AG BLE reclaim function duplicated')
 
-# Place reclaim before WiFiClientSecure construction so TLS sees the recovered
-# contiguous heap. Fail closed if PS BLE is active; cloud must never race BLE.
+# Place reclaim immediately before WiFiClientSecure construction. 15AE may insert
+# allocation-free snap15ae() instrumentation between the INTERNAL snapshot and the
+# constructor, so anchor on the constructor itself instead of exact surrounding text.
+# Target-first makes repeated PlatformIO pre-script execution idempotent.
 call='''  bool psBleReleased=false;
   if(!powerStreamBleLabReclaimIdleClientForCloud(psBleReleased)){
     err="Cloud TLS blockiert: PowerStream BLE aktiv/busy";
@@ -52,19 +54,37 @@ call='''  bool psBleReleased=false;
     return false;
   }
 '''
-anchor='''  tlsInternalSnap(gTlsInternalFreePre,gTlsInternalLargestPre);\n\n  WiFiClientSecure client;'''
-if call.strip() not in p:
-    if p.count(anchor)!=1: raise RuntimeError('15AG TLS reclaim call anchor missing/non-unique')
-    p=p.replace(anchor,'  tlsInternalSnap(gTlsInternalFreePre,gTlsInternalLargestPre);\n\n'+call+'\n  WiFiClientSecure client;',1)
+marker='bool psBleReleased=false;'
+ctor='  WiFiClientSecure client;'
+if p.count(marker)==1:
+    pass
+elif p.count(marker)>1:
+    raise RuntimeError('15AG TLS reclaim target duplicated')
+elif p.count(ctor)==1:
+    p=p.replace(ctor,call+'\n'+ctor,1)
+else:
+    raise RuntimeError('15AG WiFiClientSecure semantic anchor missing/non-unique: '+str(p.count(ctor)))
 
 # Raise the preflight to the actual measured requirement. 15AF showed mbedTLS later
 # asks for 16717 contiguous bytes after consuming roughly 18 kB during handshake;
 # entering TLS below 32 kB largest8 only creates a deterministic allocation failure.
-p=p.replace('static constexpr uint32_t TLS_GET_MIN_LARGEST8 = 10240;',
-            'static constexpr uint32_t TLS_GET_MIN_LARGEST8 = 32768;')
+old_thr='static constexpr uint32_t TLS_GET_MIN_LARGEST8 = 10240;'
+new_thr='static constexpr uint32_t TLS_GET_MIN_LARGEST8 = 32768;'
+if p.count(new_thr)==1:
+    pass
+elif p.count(new_thr)>1:
+    raise RuntimeError('15AG TLS admission threshold duplicated')
+elif p.count(old_thr)==1:
+    p=p.replace(old_thr,new_thr,1)
+else:
+    raise RuntimeError('15AG TLS admission threshold source missing/non-unique')
 
-# Provenance: preserve 15AF marker for historical diagnostics but identify solution.
-p=p.replace('9.36.7.15AF-NO-AUX-RESERVATION','9.36.7.15AG-TLS-PEAK-FIX')
+# Provenance: preserve idempotency if this script runs repeatedly.
+old_ver='9.36.7.15AF-NO-AUX-RESERVATION'
+new_ver='9.36.7.15AG-TLS-PEAK-FIX'
+if new_ver not in p:
+    if old_ver not in p: raise RuntimeError('15AG provenance source missing')
+    p=p.replace(old_ver,new_ver)
 
 code=re.sub(r'//[^\n]*|/\*.*?\*/','',p+'\n'+b,flags=re.S)
 for bad in ('setInsecure(', 'MBEDTLS_SSL_VERIFY_NONE'):
@@ -72,10 +92,11 @@ for bad in ('setInsecure(', 'MBEDTLS_SSL_VERIFY_NONE'):
 if 'setCACert(ECOFLOW_CA_BUNDLE)' not in p: raise RuntimeError('15AG CA verification missing')
 if 'NimBLEDevice::deinit' in fn: raise RuntimeError('15AG must not deinit shared NimBLE host')
 if 'jkBleProxy' in fn: raise RuntimeError('15AG must not manipulate JK proxy/client')
-if 'NimBLEDevice::deleteClient(sClient)' not in b: raise RuntimeError('15AG idle client reclaim missing')
-if 'TLS_GET_MIN_LARGEST8 = 32768' not in p: raise RuntimeError('15AG TLS admission threshold missing')
-if '9.36.7.15AG-TLS-PEAK-FIX' not in p: raise RuntimeError('15AG provenance missing')
+if b.count('bool powerStreamBleLabReclaimIdleClientForCloud(bool& released)')!=1: raise RuntimeError('15AG reclaim function cardinality != 1')
+if p.count(marker)!=1: raise RuntimeError('15AG reclaim call cardinality != 1')
+if p.count(new_thr)!=1: raise RuntimeError('15AG TLS admission threshold cardinality != 1')
+if new_ver not in p: raise RuntimeError('15AG provenance missing')
 
 ble.write_text(b,encoding='utf-8')
 api.write_text(p,encoding='utf-8')
-print('[15AG] idle PowerStream BLE client reclaimed before TLS; JK/NimBLE host retained; CA verify retained')
+print('[15AG] idle PowerStream BLE client reclaimed before TLS; 15AE-compatible; JK/NimBLE host retained; CA verify retained')
