@@ -43,15 +43,17 @@ if old in s:
 elif s.count('gTls15abStep.store(-1); tls15abSnap(0);') != 1:
     raise RuntimeError('15AB entry anchor missing/duplicated')
 
+# Match the exact output of platformio_tls15z_ab8_admission_probe.py. 15AB is
+# observation-only and must not add an extra admission condition.
 old='''      gTls15zAdmSlotReadyBefore.store(jkBleProxyAuxSlotReady()?1:0);
     }
-    if(gTls15zAdmInitialized.load()==1 && !jkBleProxyAppConnected() && !jkBleProxyEventsPending()){ tls15zAttempted=true; tls15zReserved=jkBleProxyReserveAuxConnection(); }
+    if(!jkBleProxyAppConnected() && !jkBleProxyEventsPending()){ tls15zAttempted=true; tls15zReserved=jkBleProxyReserveAuxConnection(); }
     gTls15zAdmAttempted.store(tls15zAttempted?1:0);
     const JkBleAuxMemoryDiag tls15zAuxAfter=jkBleProxyAuxMemoryDiag();'''
 new='''      gTls15zAdmSlotReadyBefore.store(jkBleProxyAuxSlotReady()?1:0);
     }
     tls15abSnap(1);
-    if(gTls15zAdmInitialized.load()==1 && !jkBleProxyAppConnected() && !jkBleProxyEventsPending()){
+    if(!jkBleProxyAppConnected() && !jkBleProxyEventsPending()){
       tls15zAttempted=true; tls15abSnap(2); tls15zReserved=jkBleProxyReserveAuxConnection(); tls15abSnap(3);
     }
     gTls15zAdmAttempted.store(tls15zAttempted?1:0);
