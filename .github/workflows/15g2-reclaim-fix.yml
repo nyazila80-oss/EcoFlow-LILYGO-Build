@@ -1,0 +1,58 @@
+name: 15G2 reclaim fix
+on:
+  push:
+    branches: ["diag/9.36.7.15AC3-ble-ram-lifecycle"]
+    paths:
+      - tools/apply_15g2_ble_reclaim.py
+      - .github/workflows/15g2-reclaim-fix.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apply-audit-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diag/9.36.7.15AC3-ble-ram-lifecycle
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply 15G.2 reclaim implementation
+        run: python tools/apply_15g2_ble_reclaim.py
+      - name: Static lifecycle audit
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('src/powerstream_ble_lab.cpp').read_text()
+          n='bool powerStreamBleLabReclaimIdleClientForCloud(bool& released)'
+          assert s.count(n)==1
+          a=s.index(n); b=s.index('static bool wifiStaEnabled(){',a); f=s[a:b]
+          req=['released=false','sConfigGate.compare_exchange_strong','sWorkerRunning.load','sLinkUp.load','sClient->isConnected()','NimBLEDevice::deleteClient(sClient)','sClient=nullptr','sWrite=nullptr','sNotify=nullptr','released=true']
+          for x in req: assert x in f,x
+          assert 'NimBLEDevice::deinit' not in f
+          assert 'jkBleProxy' not in f
+          print('15G.2 lifecycle audit PASS')
+          PY
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Full clean
+        run: pio run -e lilygo_tcan485 -t fullclean
+      - name: USB build and link
+        run: pio run -e lilygo_tcan485
+      - name: OTA build and link
+        run: pio run -e lilygo_tcan485_ota
+      - name: SPIFFS USB
+        run: pio run -e lilygo_tcan485 -t buildfs
+      - name: SPIFFS OTA
+        run: pio run -e lilygo_tcan485_ota -t buildfs
+      - name: Persist verified source
+        run: |
+          if ! git diff --quiet -- src/powerstream_ble_lab.cpp; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add src/powerstream_ble_lab.cpp
+            git commit -m '15G.2: implement fail-closed idle BLE client reclaim'
+            git push origin HEAD:diag/9.36.7.15AC3-ble-ram-lifecycle
+          fi
