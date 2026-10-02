@@ -16,6 +16,7 @@ jobs:
       - name: Provenance
         run: |
           echo "15AE_HEAD=$GITHUB_SHA"
+          echo "15AE_FULL_BUILD_REV=2"
           test -z "$(git status --porcelain)"
           git log -1 --oneline
       - name: Python syntax gate
