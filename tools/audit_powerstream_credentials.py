@@ -24,52 +24,93 @@ def strip_cpp_comments(text):
 
 API_CODE = strip_cpp_comments(API)
 
-# Browser/API ingress.
-check("web reads access POST field", 'hasParam("access",true)' in WEB and 'getParam("access",true)' in WEB,
+# Browser/API ingress. Allow harmless whitespace introduced by formatting.
+check("web reads access POST field",
+      re.search(r'hasParam\(\s*"access"\s*,\s*true\s*\)', WEB) is not None and
+      re.search(r'getParam\(\s*"access"\s*,\s*true\s*\)', WEB) is not None,
       "POST access field is read")
-check("web reads secret POST field", 'hasParam("secret",true)' in WEB and 'getParam("secret",true)' in WEB,
+check("web reads secret POST field",
+      re.search(r'hasParam\(\s*"secret"\s*,\s*true\s*\)', WEB) is not None and
+      re.search(r'getParam\(\s*"secret"\s*,\s*true\s*\)', WEB) is not None,
       "POST secret field is read")
-check("web forwards both to save", 'powerStreamApiSave(sn,ak,sk)' in WEB,
+check("web forwards both to save",
+      re.search(r'powerStreamApiSave\(\s*sn\s*,\s*ak\s*,\s*sk\s*\)', WEB) is not None,
       "sn/access/secret are forwarded together")
 
-# RAM/NVS persistence and reload.
-check("NVS namespace psapi", 'begin("psapi"' in API, "PowerStream credentials use psapi namespace")
+# RAM/NVS persistence and reload. These checks deliberately describe the
+# storage generation; request construction below must not reread it later.
+check("NVS namespace psapi", re.search(r'begin\(\s*"psapi"', API) is not None,
+      "PowerStream credentials use psapi namespace")
 for key, var in (("sn", "gSn"), ("access", "gAccess"), ("secret", "gSecret")):
-    check(f"NVS writes {key}", f'putString("{key}", {var})' in API, f"{key} persisted from RAM")
-    check(f"NVS reloads {key}", f'{var} = p.getString("{key}"' in API, f"{key} reloaded into RAM")
-check("blank access preserves stored value", 'if (a.length()) gAccess=a;' in API,
+    check(f"NVS writes {key}",
+          re.search(rf'putString\(\s*"{key}"\s*,\s*{var}\s*\)', API) is not None,
+          f"{key} persisted from RAM")
+    check(f"NVS reloads {key}",
+          re.search(rf'{var}\s*=\s*p\.getString\(\s*"{key}"', API) is not None,
+          f"{key} reloaded into RAM")
+check("blank access preserves stored value",
+      re.search(r'if\s*\(\s*a\.length\(\)\s*\)\s*gAccess\s*=\s*a\s*;', API_CODE) is not None,
       "empty AccessKey field does not erase existing key")
-check("blank secret preserves stored value", 'if (k.length()) gSecret=k;' in API,
+check("blank secret preserves stored value",
+      re.search(r'if\s*\(\s*k\.length\(\)\s*\)\s*gSecret\s*=\s*k\s*;', API_CODE) is not None,
       "empty SecretKey field does not erase existing key")
 
-# AC1 request invariant: AccessKey and SecretKey must be copied together while
-# holding the API lock. After that point this request must use only the immutable
-# local copies. In particular, do NOT require a later gAccess/gSecret comparison:
-# that would re-open a mixed-generation race if credentials were changed mid-request.
+# AC1 request invariant. Locate authHeaders structurally, then prove that both
+# mutable credential globals are copied under ONE ApiLock. All subsequent
+# request material must derive exclusively from requestAccess/requestSecret.
+auth_start = re.search(r'static\s+bool\s+authHeaders\s*\([^)]*\)\s*\{', API_CODE)
+auth_body = ""
+if auth_start:
+    pos = auth_start.end()
+    depth = 1
+    i = pos
+    in_string = False
+    escaped = False
+    quote = ''
+    while i < len(API_CODE) and depth:
+        c = API_CODE[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif c == '\\':
+                escaped = True
+            elif c == quote:
+                in_string = False
+        elif c in ('"', "'"):
+            in_string = True
+            quote = c
+        elif c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+        i += 1
+    if depth == 0:
+        auth_body = API_CODE[pos:i-1]
+
 snapshot_re = re.compile(
     r'String\s+requestAccess\s*;\s*String\s+requestSecret\s*;\s*'
     r'\{\s*ApiLock\s+credentialSnapshot\s*\([^;]+;\s*'
-    r'if\s*\(!credentialSnapshot\.held\)\s*\{[^}]*return\s+false;\s*\}\s*'
+    r'if\s*\(\s*!credentialSnapshot\.held\s*\)\s*\{.*?return\s+false\s*;\s*\}\s*'
     r'requestAccess\s*=\s*gAccess\s*;\s*requestSecret\s*=\s*gSecret\s*;\s*\}',
     re.S,
 )
-snapshot_match = snapshot_re.search(API_CODE)
-request_tail = API_CODE[snapshot_match.end():] if snapshot_match else ""
-# Limit the no-global-read proof to the request construction function: the next
-# top-level helper/class declaration marks the end of that path in this source.
-tail_end = re.search(r'\n(?:class|static\s+(?:bool|void|String|int|uint32_t)|bool\s+powerStreamApi|void\s+powerStreamApi|String\s+powerStreamApi)', request_tail)
-request_use = request_tail[:tail_end.start()] if tail_end else request_tail
+snapshot_match = snapshot_re.search(auth_body)
+request_use = auth_body[snapshot_match.end():] if snapshot_match else ""
 
 check("AC1 snapshots access+secret under one lock", snapshot_match is not None,
       "request-local AccessKey and SecretKey originate from the same locked RAM generation")
-check("request header uses AccessKey snapshot", 'addHeader("accessKey",requestAccess)' in request_use,
+check("request header uses AccessKey snapshot",
+      re.search(r'addHeader\(\s*"accessKey"\s*,\s*requestAccess\s*\)', request_use) is not None,
       "request-local AccessKey becomes EcoFlow accessKey header")
-check("signature base uses AccessKey snapshot", '"accessKey="+requestAccess' in request_use,
+check("signature base uses AccessKey snapshot",
+      re.search(r'"accessKey="\s*\+\s*requestAccess', request_use) is not None,
       "the same request-local AccessKey is part of the signature base")
-check("HMAC uses SecretKey snapshot", 'hmac256(signBase,requestSecret)' in request_use,
+check("HMAC uses SecretKey snapshot",
+      re.search(r'hmac256\(\s*signBase\s*,\s*requestSecret\s*\)', request_use) is not None,
       "the request-local SecretKey is the HMAC-SHA256 key")
-check("no post-snapshot global credential reads", not re.search(r'\bg(?:Access|Secret)\b', request_use),
-      "after the atomic snapshot, request construction does not reread mutable credential globals")
+check("no post-snapshot global credential reads",
+      snapshot_match is not None and not re.search(r'\bg(?:Access|Secret)\b', request_use),
+      "after the atomic snapshot, authHeaders never rereads mutable credential globals")
 
 # Security regression guards: do not expose plaintext secret through public API.
 check("no public secret getter", "powerStreamApiSecret" not in HDR,
