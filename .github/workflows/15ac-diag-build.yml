@@ -1,0 +1,63 @@
+name: 15AC Diagnostic Build
+
+on:
+  push:
+    branches:
+      - 'diag/9.36.7.15AC*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PlatformIO
+        run: python -m pip install --upgrade platformio
+      - name: Python syntax gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' pyfiles < <(find . -type f -name '*.py' -not -path './.pio/*' -not -path './.git/*' -print0)
+          if [ ${#pyfiles[@]} -gt 0 ]; then python -m py_compile "${pyfiles[@]}"; fi
+      - name: Bootstrap pinned packages
+        run: pio pkg install -e lilygo_tcan485
+      - name: Full clean USB
+        run: pio run -e lilygo_tcan485 -t fullclean
+      - name: Build USB
+        run: pio run -e lilygo_tcan485
+      - name: Build OTA
+        run: pio run -e lilygo_tcan485_ota
+      - name: Build SPIFFS USB
+        run: pio run -e lilygo_tcan485 -t buildfs
+      - name: Build SPIFFS OTA
+        run: pio run -e lilygo_tcan485_ota -t buildfs
+      - name: Host regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t sims < <(find . -maxdepth 2 -type f \( -name 'host_sim*.py' -o -name '*regression*.py' -o -name '*audit*.py' \) -not -path './.pio/*' -not -path './.git/*' | sort)
+          for sim in "${sims[@]}"; do echo "===== $sim ====="; python "$sim"; done
+      - name: Collect binaries
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/lilygo_tcan485 artifacts/lilygo_tcan485_ota
+          for env in lilygo_tcan485 lilygo_tcan485_ota; do
+            for f in firmware.bin spiffs.bin bootloader.bin partitions.bin; do
+              test -s ".pio/build/$env/$f"
+              cp ".pio/build/$env/$f" "artifacts/$env/"
+            done
+          done
+          cp platformio.ini partitions.csv data/fs_version.txt artifacts/
+      - name: Upload artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 15AC-diag-${{ github.sha }}
+          path: artifacts/
+          retention-days: 14
