@@ -19,17 +19,19 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
           rg=Path('src/resource_gate.cpp').read_text(errors='ignore')
           ble=Path('src/powerstream_ble_lab.cpp').read_text(errors='ignore')
           api=Path('src/powerstream_api.cpp').read_text(errors='ignore')
-          # Audit the actual production transport function. It is named apiRequest,
-          # and this diagnostic firmware rejects every method except GET at entry.
           req_start=api.index('static bool apiRequest(')
-          # Bound the slice at the next public API function rather than attempting
-          # to parse nested C++ braces with a first-"}" substring search.
           marker='bool powerStreamApiQueryQuota('
           req_end=api.index(marker,req_start) if marker in api[req_start:] else len(api)
           get_path=api[req_start:req_end]
+          # Strip C/C++ comments before security-call matching so documentation such
+          # as "Never fall back to setInsecure()" cannot create a false positive.
+          code_no_comments=re.sub(r'/\*.*?\*/','',get_path,flags=re.S)
+          code_no_comments=re.sub(r'//.*','',code_no_comments)
+          insecure_call=re.search(r'(?:\.|->)\s*setInsecure\s*\(',code_no_comments) is not None
           checks={
             'atomic owner CAS':'compare_exchange_strong' in rg,
             'release mismatch telemetry':'gHeavyReleaseMismatch' in rg,
@@ -38,10 +40,10 @@ jobs:
             'BLE heap integrity':'heap_caps_check_integrity_all' in ble,
             'BLE worker state':'sWorkerRunning' in ble,
             'BLE cleanup telemetry':'sCleanupCount' in ble and 'sCleanupDeltaFree' in ble,
-            'cloud GET-only fail closed':'if(method!="GET")' in get_path,
-            'cloud TLS CA installed':'setCACert(ECOFLOW_CA_BUNDLE)' in get_path,
-            'cloud TLS no insecure fallback':'setInsecure' not in get_path,
-            'TLS fragmentation preflight':'TLS_GET_MIN_LARGEST8' in get_path,
+            'cloud GET-only fail closed':'if(method!="GET")' in code_no_comments,
+            'cloud TLS CA installed':'setCACert(ECOFLOW_CA_BUNDLE)' in code_no_comments,
+            'cloud TLS no insecure call':not insecure_call,
+            'TLS fragmentation preflight':'TLS_GET_MIN_LARGEST8' in code_no_comments,
             'AC1 local access snapshot':'requestAccess=gAccess;' in api,
             'AC1 local secret snapshot':'requestSecret=gSecret;' in api,
             'AC1 HMAC local secret':'hmac256(signBase,requestSecret)' in api,
@@ -49,7 +51,7 @@ jobs:
           for k,v in checks.items(): print(('PASS' if v else 'FAIL'), k)
           bad=[k for k,v in checks.items() if not v]
           if bad: raise SystemExit('15AC3 deep FMEA failed: '+', '.join(bad))
-          print('15AC3 deep static FMEA PASS')
+          print('15AC3 deep static FMEA PASS checks=',len(checks))
           PY
       - name: Resource gate model stress
         run: |
