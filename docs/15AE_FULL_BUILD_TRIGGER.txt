@@ -1,0 +1,2 @@
+15AE full-build trigger checkpoint.
+This commit intentionally changes no runtime firmware behavior.
