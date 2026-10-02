@@ -26,9 +26,18 @@ jobs:
         run: pio pkg install -e lilygo_tcan485
       - name: Security and 15AF composition audit
         run: |
-          grep -q 'platformio_tls15af_no_aux_reservation.py' platformio.ini
-          grep -q 'setCACert(ECOFLOW_CA_BUNDLE)' src/powerstream_api.cpp
-          ! grep -E 'setInsecure\(|MBEDTLS_SSL_VERIFY_NONE' src/powerstream_api.cpp
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          ini=Path('platformio.ini').read_text()
+          src=Path('src/powerstream_api.cpp').read_text()
+          assert 'platformio_tls15af_no_aux_reservation.py' in ini
+          assert 'setCACert(ECOFLOW_CA_BUNDLE)' in src
+          code=re.sub(r'//[^\n]*|/\*.*?\*/','',src,flags=re.S)
+          assert not re.search(r'\bsetInsecure\s*\(',code)
+          assert 'MBEDTLS_SSL_VERIFY_NONE' not in code
+          print('SECURITY PASS: CA verification present; no executable insecure fallback')
+          PY
       - name: Existing audits and host simulations
         run: |
           set -euo pipefail
@@ -48,9 +57,18 @@ jobs:
         run: pio run -e lilygo_tcan485_ota -t buildfs
       - name: Verify generated 15AF target
         run: |
-          grep -q '9.36.7.15AF-NO-AUX-RESERVATION' src/powerstream_api.cpp
-          ! grep -E 'setInsecure\(|MBEDTLS_SSL_VERIFY_NONE' src/powerstream_api.cpp
-          grep -q 'setCACert(ECOFLOW_CA_BUNDLE)' src/powerstream_api.cpp
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          src=Path('src/powerstream_api.cpp').read_text()
+          assert '9.36.7.15AF-NO-AUX-RESERVATION' in src
+          assert 'setCACert(ECOFLOW_CA_BUNDLE)' in src
+          code=re.sub(r'//[^\n]*|/\*.*?\*/','',src,flags=re.S)
+          assert not re.search(r'\bsetInsecure\s*\(',code)
+          assert 'MBEDTLS_SSL_VERIFY_NONE' not in code
+          assert 'jkBleProxyReserveAuxConnection();' not in code
+          print('15AF GENERATED TARGET PASS')
+          PY
       - name: Collect original-name OTA artifacts
         run: |
           set -euo pipefail
