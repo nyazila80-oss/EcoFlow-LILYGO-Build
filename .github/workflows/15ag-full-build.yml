@@ -72,12 +72,14 @@ jobs:
           import re
           p=Path('src/powerstream_api.cpp').read_text()
           b=Path('src/powerstream_ble_lab.cpp').read_text()
-          code=re.sub(r'//[^\n]*|/\*.*?\*/','',p+'\n'+b,flags=re.S)
+          w=Path('src/web.cpp').read_text()
+          code=re.sub(r'//[^\n]*|/\*.*?\*/','',p+'\n'+b+'\n'+w,flags=re.S)
           assert '9.36.7.15AG-TLS-PEAK-FIX' in p
           assert 'TLS_GET_MIN_LARGEST8 = 32768' in p
           assert 'powerStreamBleLabReclaimIdleClientForCloud(psBleReleased)' in p
           assert 'gCloudNotBeforeMs.store(millis()+750U' in p
           assert 'http_quiet_window_ms' in p
+          assert w.count('res->addHeader("Connection","close");') >= 3
           ui=Path('data/bms_dashboard.html').read_text()
           assert 'psCloudJobActive=true' in ui
           assert 'setTimeout(r,14000)' in ui
