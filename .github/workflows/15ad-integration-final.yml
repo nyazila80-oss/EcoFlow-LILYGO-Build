@@ -1,0 +1,66 @@
+name: 15AD Integration Final Gate
+on:
+  push:
+    branches: ["diag/9.36.7.15AD-integration-final"]
+  workflow_dispatch:
+
+jobs:
+  integration-final:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Provenance
+        run: |
+          echo "15AD_HEAD=$GITHUB_SHA"
+          git status --porcelain
+          test -z "$(git status --porcelain)"
+          git log -1 --oneline
+      - name: Python syntax gate
+        run: python -m compileall -q tools
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Bootstrap pinned packages
+        run: pio pkg install -e lilygo_tcan485
+      - name: Credential provenance audit
+        run: python tools/audit_powerstream_credentials.py
+      - name: 15Z memory-relief lifecycle simulation
+        run: python tools/host_sim_15z_memory_relief.py
+      - name: Full host regression suite
+        run: |
+          set -euo pipefail
+          for f in tools/host_sim_*.py tools/audit_*.py; do
+            case "$f" in
+              tools/host_sim_15z_memory_relief.py|tools/audit_powerstream_credentials.py) continue ;;
+            esac
+            echo "===== 15AD RUN $f ====="
+            python "$f"
+          done
+      - name: Full clean USB
+        run: pio run -e lilygo_tcan485 -t fullclean
+      - name: Build USB
+        run: pio run -e lilygo_tcan485
+      - name: Build OTA
+        run: pio run -e lilygo_tcan485_ota
+      - name: Build SPIFFS USB
+        run: pio run -e lilygo_tcan485 -t buildfs
+      - name: Build SPIFFS OTA
+        run: pio run -e lilygo_tcan485_ota -t buildfs
+      - name: Collect and hash final binaries
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cp .pio/build/lilygo_tcan485/firmware.bin artifacts/firmware-usb.bin
+          cp .pio/build/lilygo_tcan485/spiffs.bin artifacts/spiffs-usb.bin
+          cp .pio/build/lilygo_tcan485_ota/firmware.bin artifacts/firmware-ota.bin
+          cp .pio/build/lilygo_tcan485_ota/spiffs.bin artifacts/spiffs-ota.bin
+          sha256sum artifacts/* | tee artifacts/SHA256SUMS.txt
+          printf '%s\n' "$GITHUB_SHA" > artifacts/COMMIT.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 15AD-final-${{ github.sha }}
+          path: artifacts/
+          retention-days: 14
