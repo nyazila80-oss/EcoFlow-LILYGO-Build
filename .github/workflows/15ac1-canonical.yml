@@ -17,8 +17,6 @@ jobs:
         run: pip install platformio
       - name: Apply canonical 15AC1 snapshot over 15D generator
         run: python tools/apply_15ac1_canonical_snapshot.py
-      - name: Apply 15F generated-source gate
-        run: python tools/apply_tls15f_generated_source_gate.py
       - name: Verify request-local credential use
         run: |
           python - <<'PY'
