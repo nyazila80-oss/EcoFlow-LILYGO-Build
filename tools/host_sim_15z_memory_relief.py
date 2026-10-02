@@ -66,8 +66,17 @@ assert '9.36.7.15Z-MEMORY-RELIEF-AB7' in hard
 assert '9.36.7.15Z-MEMORY-RELIEF-AB8' in ab8
 
 # Composition is fail-hard and USB/OTA share the same inherited pre-script chain.
-for msg in ('header provenance anchor','source provenance declaration anchor','owner stop marker anchor','advertising retry anchor','before provenance anchor','after provenance anchor','stop provenance expression','JSON provenance anchor'):
+# Check the current semantic guards. Before/After provenance now deliberately use
+# one parameterized helper, so literal per-side error strings are no longer a
+# valid oracle (the old test produced a false failure after AC1/AC3 composition).
+for msg in ('header provenance anchor','source provenance declaration anchor','owner stop marker anchor','advertising retry anchor','stop provenance expression','JSON provenance anchor'):
     assert msg in hard,msg
+assert 'def add_stop_generation(text, which, dst):' in hard
+assert "p=add_stop_generation(p,'Before','gTls15zStopGenerationBefore.store(tls15zAuxBefore.stopGeneration);')" in hard
+assert "p=add_stop_generation(p,'After','gTls15zStopGenerationAfter.store(tls15zAuxAfter.stopGeneration);')" in hard
+assert "provenance anchor missing/non-unique" in hard
+assert "provenance duplicated" in hard
+assert "if len(matches)!=1" in hard
 
 # Lifecycle/security invariants. Never scan the Python hardening script itself as
 # though it were generated C++: forbidden literals intentionally occur inside
