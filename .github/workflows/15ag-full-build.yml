@@ -78,6 +78,9 @@ jobs:
           assert 'powerStreamBleLabReclaimIdleClientForCloud(psBleReleased)' in p
           assert 'gCloudNotBeforeMs.store(millis()+750U' in p
           assert 'http_quiet_window_ms' in p
+          assert p.count('tls15agFragSnap(') == 3
+          assert 'frag_queue_largest' in p and 'frag_start_largest' in p
+          assert 'frag_psram_total' in p
           ui=Path('data/bms_dashboard.html').read_text()
           assert 'psCloudJobActive=true' in ui
           assert 'setTimeout(r,14000)' in ui

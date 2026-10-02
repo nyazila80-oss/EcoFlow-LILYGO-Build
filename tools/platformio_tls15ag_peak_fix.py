@@ -80,6 +80,21 @@ if timing_decl not in p:
     if p.count(diag_decl)!=1: raise RuntimeError('15AG HTTP quiet timing declaration anchor missing/non-unique')
     p=p.replace(diag_decl,diag_decl+'\n'+timing_decl,1)
 
+frag_decl='''
+static std::atomic<uint32_t> gFragQueueFree{0},gFragQueueLargest{0},gFragQueueBlocks{0};
+static std::atomic<uint32_t> gFragStartFree{0},gFragStartLargest{0},gFragStartBlocks{0};
+static std::atomic<uint32_t> gFragPsramTotal{0},gFragPsramFree{0},gFragPsramLargest{0};
+static inline void tls15agFragSnap(std::atomic<uint32_t>& fr,std::atomic<uint32_t>& lg,std::atomic<uint32_t>& blocks){
+  multi_heap_info_t i{}; heap_caps_get_info(&i,MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+  fr.store((uint32_t)i.total_free_bytes,std::memory_order_relaxed);
+  lg.store((uint32_t)i.largest_free_block,std::memory_order_relaxed);
+  blocks.store((uint32_t)i.free_blocks,std::memory_order_relaxed);
+}
+'''
+if 'gFragQueueFree' not in p:
+    if p.count(timing_decl)!=1: raise RuntimeError('15AG fragmentation declaration anchor missing/non-unique')
+    p=p.replace(timing_decl,timing_decl+frag_decl,1)
+
 reset_fn='''
 static void resetTlsDiagnosticsForJob(uint32_t jobId){
   gTlsDiagJobId.store(jobId,std::memory_order_relaxed);
@@ -102,6 +117,10 @@ static void resetTlsDiagnosticsForJob(uint32_t jobId){
   gCloudQueuedAtMs.store(millis(),std::memory_order_relaxed);
   gCloudStartedAtMs.store(0,std::memory_order_relaxed);
   gCloudNotBeforeMs.store(millis()+750U,std::memory_order_release);
+  tls15agFragSnap(gFragQueueFree,gFragQueueLargest,gFragQueueBlocks);
+  gFragPsramTotal.store((uint32_t)heap_caps_get_total_size(MALLOC_CAP_SPIRAM),std::memory_order_relaxed);
+  gFragPsramFree.store((uint32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),std::memory_order_relaxed);
+  gFragPsramLargest.store((uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM),std::memory_order_relaxed);
   { ApiLock lk(pdMS_TO_TICKS(50)); if(lk.held){ psApiState.lastHttpCode=-1; psApiState.lastResponseBytes=0; } }
 }
 '''
@@ -122,6 +141,7 @@ loop_new='''void powerStreamApiLoopTick(){
   if(!gJobPending.load(std::memory_order_acquire)) return;
   const uint32_t notBefore=gCloudNotBeforeMs.load(std::memory_order_acquire);
   if((int32_t)(millis()-notBefore)<0) return;
+  tls15agFragSnap(gFragStartFree,gFragStartLargest,gFragStartBlocks);
   gCloudStartedAtMs.store(millis(),std::memory_order_relaxed);
   runCloudJobOnLoopTask();
 }'''
@@ -149,6 +169,12 @@ if 'http_quiet_window_ms' not in p:
     if p.count(json_timing_anchor)!=1: raise RuntimeError('15AG HTTP quiet JSON anchor missing/non-unique')
     p=p.replace(json_timing_anchor,json_timing_new,1)
 
+frag_json_anchor='",\\"http_quiet_window_ms\\":750,\\"pending\\":"'
+frag_json_new='",\\"http_quiet_window_ms\\":750,\\"frag_queue_free\\":"+String(gFragQueueFree.load())+",\\"frag_queue_largest\\":"+String(gFragQueueLargest.load())+",\\"frag_queue_blocks\\":"+String(gFragQueueBlocks.load())+",\\"frag_start_free\\":"+String(gFragStartFree.load())+",\\"frag_start_largest\\":"+String(gFragStartLargest.load())+",\\"frag_start_blocks\\":"+String(gFragStartBlocks.load())+",\\"frag_psram_total\\":"+String(gFragPsramTotal.load())+",\\"frag_psram_free\\":"+String(gFragPsramFree.load())+",\\"frag_psram_largest\\":"+String(gFragPsramLargest.load())+",\\"pending\\":"'
+if 'frag_queue_largest' not in p:
+    if p.count(frag_json_anchor)!=1: raise RuntimeError('15AG fragmentation JSON anchor missing/non-unique')
+    p=p.replace(frag_json_anchor,frag_json_new,1)
+
 code=re.sub(r'//[^\n]*|/\*.*?\*/','',p+'\n'+b,flags=re.S)
 for bad in ('setInsecure(', 'MBEDTLS_SSL_VERIFY_NONE'):
     if bad in code: raise RuntimeError('15AG security invariant: '+bad)
@@ -164,6 +190,7 @@ if p.count('gTlsAttemptedThisJob.store(true')!=1: raise RuntimeError('15AG TLS a
 if 'tls_diag_job_id' not in p or 'tls_attempted_this_job' not in p: raise RuntimeError('15AG JSON ownership fields missing')
 if p.count('gCloudNotBeforeMs.store(millis()+750U')!=1: raise RuntimeError('15AG HTTP quiet window missing/duplicated')
 if p.count('http_quiet_window_ms')!=1: raise RuntimeError('15AG HTTP quiet JSON field missing/duplicated')
+if p.count('tls15agFragSnap(')!=3 or 'frag_psram_total' not in p: raise RuntimeError('15AG fragmentation attribution missing/malformed')
 
 ble.write_text(b,encoding='utf-8')
 api.write_text(p,encoding='utf-8')
