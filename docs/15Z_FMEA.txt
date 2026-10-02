@@ -1,0 +1,18 @@
+15Z focused FMEA
+
+Failure: TLS X509/RSA verify fails while global heap appears healthy.
+Evidence from 15Y: INTERNAL|8BIT at direct RSA probe ~808 free / 500 largest; allocation failures observed.
+
+Branches tested by 15Z B1:
+- JK advertising/reconnect contention retained resources -> safe aux reservation may improve headroom.
+- Active JK session -> reservation prohibited, diagnostic records no unsafe lifecycle mutation.
+- Pending callback transition -> reservation prohibited.
+- Reservation overhead -> negative delta exposes regression immediately.
+
+Not tested by B1:
+- full NimBLE host/controller retained allocations;
+- AsyncTCP/WebServer retained allocations;
+- TLS allocator/capability mismatch independent of BLE;
+- stronger deinit/reinit lifecycle.
+
+Those remain candidates only after B1 hardware evidence.

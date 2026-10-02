@@ -1,0 +1,74 @@
+name: 15J X509 Verify Diagnostic Build
+
+# Legacy diagnostic. Retained for explicit forensic reruns only; the current
+# PlatformIO build already applies the maintained TLS framework patch chain.
+on:
+  workflow_dispatch:
+
+jobs:
+  build15j:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PlatformIO
+        run: python -m pip install --upgrade platformio
+      - name: Apply deterministic 15J chain
+        run: |
+          set -euo pipefail
+          python tools/run_tls15j_patch.py
+          grep -F 'TLS15I_VERSION="9.36.7.15J-X509-VERIFY-DIAG"' src/powerstream_api.cpp
+          grep -F 'TLS15J_TRUST_ANCHOR="DigiCert Global Root G2"' src/powerstream_api.cpp
+          grep -F 'tls15j_ca_pem_bytes' src/powerstream_api.cpp
+          grep -F 'client.setCACert(ECOFLOW_CA_BUNDLE);' src/powerstream_api.cpp
+          if grep -Ev '^[[:space:]]*(//|/\*|\*|#)' src/powerstream_api.cpp | grep -Eq '(^|[^[:alnum:]_])setInsecure[[:space:]]*\('; then
+            echo 'ERROR: executable setInsecure() detected'; exit 1
+          fi
+      - name: Set 15J provenance
+        run: |
+          set -euo pipefail
+          sed -i 's/2.4.5.9.36.7.15I-X509-ROOTCAUSE/2.4.5.9.36.7.15J-X509-VERIFY-DIAG/g' include/config.h data/fs_version.txt
+          grep -F '#define FW_VERSION "2.4.5.9.36.7.15J-X509-VERIFY-DIAG"' include/config.h
+          test "$(tr -d '\r\n' < data/fs_version.txt)" = '2.4.5.9.36.7.15J-X509-VERIFY-DIAG'
+      - name: Python syntax
+        run: python -m py_compile tools/*.py
+      - name: Full clean and build
+        run: |
+          set -euo pipefail
+          pio run -t clean
+          pio run -e lilygo_tcan485
+          pio run -e lilygo_tcan485_ota
+          pio run -e lilygo_tcan485 -t buildfs
+          pio run -e lilygo_tcan485_ota -t buildfs
+      - name: Binary provenance and safety gate
+        run: |
+          set -euo pipefail
+          for env in lilygo_tcan485 lilygo_tcan485_ota; do
+            fw=.pio/build/$env/firmware.bin
+            fs=.pio/build/$env/spiffs.bin
+            test -s "$fw"; test -s "$fs"
+            grep -aFq '9.36.7.15J-X509-VERIFY-DIAG' "$fw"
+            grep -aFq 'DigiCert Global Root G2' "$fw"
+            grep -aFq 'tls15j_ca_pem_bytes' "$fw"
+            grep -aFq '2.4.5.9.36.7.15J-X509-VERIFY-DIAG' "$fs"
+          done
+          cmp -s .pio/build/lilygo_tcan485/spiffs.bin .pio/build/lilygo_tcan485_ota/spiffs.bin
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts/lilygo_tcan485 artifacts/lilygo_tcan485_ota
+          for env in lilygo_tcan485 lilygo_tcan485_ota; do
+            cp .pio/build/$env/firmware.bin artifacts/$env/
+            cp .pio/build/$env/spiffs.bin artifacts/$env/
+          done
+          cp data/fs_version.txt artifacts/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EcoFlow-LILYGO-15J-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,74 @@
+name: 15I X509 Runtime Build
+
+# Legacy diagnostic. The current PlatformIO release path already carries the
+# later TLS diagnostic chain; keep 15I available for explicit forensic reruns
+# without launching it on every pull-request commit.
+on:
+  workflow_dispatch:
+
+jobs:
+  build15i:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PlatformIO
+        run: python -m pip install --upgrade platformio
+      - name: Apply complete 15I patch chain
+        run: |
+          set -euo pipefail
+          python tools/run_tls15i_patch.py
+          grep -F 'TLS15I_VERSION="9.36.7.15I-X509-ROOTCAUSE"' src/powerstream_api.cpp
+          grep -F 'tls15i_x509_verify_failed' src/powerstream_api.cpp
+          grep -F 'client.setCACert(ECOFLOW_CA_BUNDLE);' src/powerstream_api.cpp
+          if grep -Ev '^[[:space:]]*(//|/\*|\*|#)' src/powerstream_api.cpp | grep -Eq '(^|[^[:alnum:]_])setInsecure[[:space:]]*\('; then
+            echo 'ERROR: executable setInsecure() call detected'
+            exit 1
+          fi
+          echo 'TLS safety gate PASS: CA verification enabled, no executable setInsecure() call'
+      - name: Provenance source gate
+        run: |
+          set -euo pipefail
+          grep -F '#define FW_VERSION "2.4.5.9.36.7.15I-X509-ROOTCAUSE"' include/config.h
+          test "$(tr -d '\r\n' < data/fs_version.txt)" = '2.4.5.9.36.7.15I-X509-ROOTCAUSE'
+      - name: Python syntax
+        run: python -m py_compile tools/*.py
+      - name: Clean and build firmware
+        run: |
+          pio run -t clean
+          pio run -e lilygo_tcan485
+          pio run -e lilygo_tcan485_ota
+          pio run -e lilygo_tcan485 -t buildfs
+          pio run -e lilygo_tcan485_ota -t buildfs
+      - name: Binary provenance gate
+        run: |
+          set -euo pipefail
+          for env in lilygo_tcan485 lilygo_tcan485_ota; do
+            fw=.pio/build/$env/firmware.bin
+            fs=.pio/build/$env/spiffs.bin
+            test -s "$fw"; test -s "$fs"
+            grep -aFq '9.36.7.15I-X509-ROOTCAUSE' "$fw"
+            grep -aFq 'tls15i_x509_verify_failed' "$fw"
+            grep -aFq '2.4.5.9.36.7.15I-X509-ROOTCAUSE' "$fs"
+          done
+          cmp -s .pio/build/lilygo_tcan485/spiffs.bin .pio/build/lilygo_tcan485_ota/spiffs.bin
+          echo '15I binary provenance PASS'
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts/lilygo_tcan485 artifacts/lilygo_tcan485_ota
+          for env in lilygo_tcan485 lilygo_tcan485_ota; do
+            cp .pio/build/$env/firmware.bin artifacts/$env/
+            cp .pio/build/$env/spiffs.bin artifacts/$env/
+          done
+          cp data/fs_version.txt artifacts/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EcoFlow-LILYGO-15I-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14

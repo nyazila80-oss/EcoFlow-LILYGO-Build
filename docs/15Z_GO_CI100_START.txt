@@ -1,0 +1,1 @@
+Go CI100 start.

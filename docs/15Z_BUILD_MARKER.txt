@@ -1,0 +1,4 @@
+9.36.7.15Z-MEMORY-RELIEF-AB
+Baseline: 15Y Build #99
+Mode: observation-first safe JK aux reservation A/B
+No TLS weakening. No NimBLE global deinit. No cloud write enablement.

@@ -1,0 +1,1 @@
+15Z source changes prepared. Next gate is GitHub Actions compile/link/regression; no hardware deployment until green artifacts exist.
