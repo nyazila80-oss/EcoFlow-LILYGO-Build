@@ -1,0 +1,16 @@
+name: 15AE Hardware Memory Attribution Gate
+on:
+  push:
+    branches: ["diag/9.36.7.15AE-hw-memory-attribution"]
+  workflow_dispatch:
+jobs:
+  attribution:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python tools/audit_15ae_hw_memory_attribution.py
+      - run: python tools/audit_powerstream_credentials.py
+      - run: python tools/host_sim_15z_memory_relief.py
