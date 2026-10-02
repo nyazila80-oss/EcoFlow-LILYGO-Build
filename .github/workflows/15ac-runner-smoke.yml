@@ -1,0 +1,17 @@
+name: 15AC Runner Smoke
+
+on:
+  push:
+    branches:
+      - 'diag/9.36.7.15AC-auth-payload-attribution'
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Runner alive
+        run: |
+          echo "runner-ok"
+          uname -a
