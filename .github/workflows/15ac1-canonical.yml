@@ -33,12 +33,13 @@ jobs:
           assert 'http.addHeader("accessKey",gAccess)' not in a
           print('15AC1 credential audit PASS')
           PY
-      - name: Deterministic patch regression gate
+      - name: Deterministic clean-generation regression gate
         run: |
-          cp src/powerstream_api.cpp /tmp/powerstream_api.after-first.cpp
+          cp src/powerstream_api.cpp /tmp/powerstream_api.expected.cpp
+          git checkout -- src/powerstream_api.cpp tools/apply_tls15d_runtime_patch.py
           python tools/apply_15ac1_canonical_snapshot.py
-          cmp -s src/powerstream_api.cpp /tmp/powerstream_api.after-first.cpp
-          echo '15AC1 deterministic/idempotent patch regression PASS'
+          cmp -s src/powerstream_api.cpp /tmp/powerstream_api.expected.cpp
+          echo '15AC1 deterministic clean-generation regression PASS'
       - name: Full clean USB
         run: pio run -e lilygo_tcan485 -t fullclean
       - name: Build USB
