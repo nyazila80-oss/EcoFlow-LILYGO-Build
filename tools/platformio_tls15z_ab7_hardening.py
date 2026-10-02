@@ -48,17 +48,24 @@ elif 'gTls15zStopGenerationBefore' not in p: raise RuntimeError('15Z AB7 TLS sta
 # Idempotent canonicalization across USB/OTA and repeated pre-script passes.
 p=re.sub(r'gTls15zSlotReady(?:PreTls)*', 'gTls15zSlotReadyPreTls', p)
 p=re.sub(r'tls15z_slot_ready(?:_pre_tls)*', 'tls15z_slot_ready_pre_tls', p)
-# AB7 upgrades AB6 once. If a later AB8 pass already upgraded provenance, keep it.
 p=p.replace('9.36.7.15Z-MEMORY-RELIEF-AB6','9.36.7.15Z-MEMORY-RELIEF-AB7')
 
-old_before='const JkBleAuxMemoryDiag tls15zAuxBefore=jkBleProxyAuxMemoryDiag(); gTls15zAuxGenerationBefore.store(tls15zAuxBefore.generation);'
-new_before=old_before+' gTls15zStopGenerationBefore.store(tls15zAuxBefore.stopGeneration);'
-if old_before in p and new_before not in p: p=p.replace(old_before,new_before,1)
-elif new_before not in p: raise RuntimeError('15Z AB7 before provenance anchor missing')
-old_after='const JkBleAuxMemoryDiag tls15zAuxAfter=jkBleProxyAuxMemoryDiag(); gTls15zAuxGenerationAfter.store(tls15zAuxAfter.generation);'
-new_after=old_after+' gTls15zStopGenerationAfter.store(tls15zAuxAfter.stopGeneration);'
-if old_after in p and new_after not in p: p=p.replace(old_after,new_after,1)
-elif new_after not in p: raise RuntimeError('15Z AB7 after provenance anchor missing')
+# Provenance insertion: bind to the semantic snapshot declaration, not the exact
+# formatting produced by AB6. This keeps clean-build composition deterministic.
+def add_stop_generation(text, which, dst):
+    if dst in text:
+        if text.count(dst) != 1: raise RuntimeError('15Z AB7 '+which+' provenance duplicated')
+        return text
+    pat=(r'(const\s+JkBleAuxMemoryDiag\s+tls15zAux'+which+r'\s*=\s*jkBleProxyAuxMemoryDiag\(\)\s*;'
+         r'\s*gTls15zAuxGeneration'+which+r'\.store\(tls15zAux'+which+r'\.generation\)\s*;)')
+    matches=list(re.finditer(pat,text))
+    if len(matches)!=1: raise RuntimeError('15Z AB7 '+which.lower()+' provenance anchor missing/non-unique: '+str(len(matches)))
+    m=matches[0]
+    return text[:m.end()]+ ' '+dst + text[m.end():]
+
+p=add_stop_generation(p,'Before','gTls15zStopGenerationBefore.store(tls15zAuxBefore.stopGeneration);')
+p=add_stop_generation(p,'After','gTls15zStopGenerationAfter.store(tls15zAuxAfter.stopGeneration);')
+
 old_obs='const bool tls15zStopObserved=tls15zOwnerRan && tls15zAuxAfter.afterStopFree!=0;'
 new_obs='const bool tls15zStopObserved=tls15zOwnerRan && tls15zAuxAfter.stopGeneration!=tls15zAuxBefore.stopGeneration;'
 if old_obs in p: p=p.replace(old_obs,new_obs,1)
