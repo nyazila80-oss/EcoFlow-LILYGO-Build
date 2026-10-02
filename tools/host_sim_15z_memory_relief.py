@@ -43,13 +43,11 @@ assert legacy != new_expr and hard.count(legacy) >= 2 and new_expr in hard
 # Current AB7 is provenance/composition hardening only. Advertising restart ownership
 # remains in the preceding generator; AB7 must not reintroduce a direct restart path.
 assert 'NimBLEDevice::startAdvertising();' not in hard
-assert 'NimBLEDevice::deinit' in hard  # appears only in fail-hard lifecycle guard
+assert 'NimBLEDevice::deinit' in hard
 assert 'live NimBLE deinit forbidden' in hard
 versions=('9.36.7.15Z-MEMORY-RELIEF-AB6','9.36.7.15Z-MEMORY-RELIEF-AB7','9.36.7.15Z-MEMORY-RELIEF-AB8','9.36.7.15AF-NO-AUX-RESERVATION','9.36.7.15AG-TLS-PEAK-FIX')
 for v in versions:
     assert v in hard,v
-# Composition oracle is structural: fresh AB6 is promoted once, while any already
-# promoted descendant is accepted only when exactly one provenance marker exists.
 assert re.search(r"present\s*=\s*\[v\s+for\s+v\s+in\s+versions\s+if\s+v\s+in\s+p\]",hard)
 assert re.search(r"if\s+present\s*==\s*\['9\.36\.7\.15Z-MEMORY-RELIEF-AB6'\]\s*:",hard)
 assert re.search(r"p\s*=\s*p\.replace\('9\.36\.7\.15Z-MEMORY-RELIEF-AB6','9\.36\.7\.15Z-MEMORY-RELIEF-AB7',1\)",hard)
@@ -65,12 +63,22 @@ assert "p=p.replace('tls15z_slot_ready','tls15z_slot_ready_pre_tls')" not in har
 assert '9.36.7.15Z-MEMORY-RELIEF-AB8' in ab8
 
 # Composition is fail-hard and USB/OTA share the same inherited pre-script chain.
-# Audit each current AB7 mutation anchor against the condition that makes it fail closed.
 for msg in ('stopGeneration header anchor','aux stop generation anchor','aux snapshot generation anchor','powerstream provenance declaration anchor','stop provenance expression','JSON provenance anchor'):
     assert msg in hard,msg
-assert "stop_anchor='NimBLEDevice::stopAdvertising();'" in hard
-assert "if j.count(stop_anchor)!=1: raise RuntimeError('15Z AB7 stopAdvertising anchor missing/non-unique')" in hard
-assert "j=j.replace(stop_anchor,stop_anchor+'\\n        '+inc,1)" in hard
+
+# Owner-scoped stop provenance: AB7 must identify the reservation-owner function,
+# count stopAdvertising only inside that owner, fail closed on 0/>1, and inject
+# the stop-generation increment immediately after the matched owner stop.
+assert "owner_start='bool jkBleProxyReserveAuxConnectionOwner(){'" in hard
+assert "owner_end='bool jkBleProxyReserveAuxConnection(){'" in hard
+assert 'owner reservation function boundary missing/non-unique' in hard
+assert re.search(r"stop_re\s*=\s*re\.compile\(r'NimBLEDevice::stopAdvertising",hard)
+assert re.search(r"stops\s*=\s*list\(stop_re\.finditer\(owner\)\)",hard)
+assert re.search(r"if\s+len\(stops\)\s*!=\s*1\s*:",hard)
+assert 'owner stopAdvertising anchor missing/non-unique; owner=%d global=%d' in hard
+assert re.search(r"m\s*=\s*stops\[0\]",hard)
+assert re.search(r"owner\s*=\s*owner\[:m\.end\(\)\]\s*\+\s*['\"]\\n\s+['\"]\s*\+\s*inc\s*\+\s*owner\[m\.end\(\):\]",hard)
+assert re.search(r"j\s*=\s*j\[:a\]\s*\+\s*owner\s*\+\s*j\[b:\]",hard)
 assert 'member duplicated' in hard
 assert 'expected exactly one AB6/AB7-or-later provenance' in hard
 
@@ -98,4 +106,4 @@ assert "security invariant: executable VERIFY_NONE" in hard
 assert "lifecycle invariant: live NimBLE deinit forbidden" in hard
 
 print('15Z AB7/AB8 FAST generated-code gate PASS: TLS verification, NimBLE lifecycle, provenance, idempotent slot telemetry, obsolete-release and USB/OTA composition')
-print('15Z AB7/AB8 FMEA regression PASS: stop-generation provenance, AB6-to-descendant composition, deferred advertising ownership, idempotent pre-TLS naming, USB/OTA composition, TLS security')
+print('15Z AB7/AB8 FMEA regression PASS: owner-scoped stop-generation provenance, AB6-to-descendant composition, deferred advertising ownership, idempotent pre-TLS naming, USB/OTA composition, TLS security')
