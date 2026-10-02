@@ -8,8 +8,8 @@ s=p.read_text(encoding="utf-8")
 # Build-time diagnostic patch only. Runtime snapshots call heap metadata APIs and
 # store into atomics; they do not log, allocate Strings, or expose credentials.
 # PlatformIO can execute pre-scripts more than once in one job (fullclean/build,
-# USB/OTA), so every transformation below accepts exactly one source or target
-# state and fails hard on mixed/duplicated states.
+# USB/OTA). Prefer an already-instrumented target over its source anchor because
+# some targets intentionally contain the original source text as a substring.
 anchor='static std::atomic<uint32_t> gTlsHeapGetPost{0}, gTlsLargestGetPost{0};'
 insert='''\n// 15AE real-hardware phase attribution (allocation-free snapshots).\nstatic std::atomic<uint32_t> g15aeClientFree{0},g15aeClientLargest{0};\nstatic std::atomic<uint32_t> g15aeCaFree{0},g15aeCaLargest{0};\nstatic std::atomic<uint32_t> g15aeHttpFree{0},g15aeHttpLargest{0};\nstatic std::atomic<uint32_t> g15aeUrlFree{0},g15aeUrlLargest{0};\nstatic std::atomic<uint32_t> g15aeBeginFree{0},g15aeBeginLargest{0};\nstatic std::atomic<uint32_t> g15aeAuthFree{0},g15aeAuthLargest{0};\nstatic inline void snap15ae(std::atomic<uint32_t>& f,std::atomic<uint32_t>& l){\n const uint32_t c=MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT;\n f.store(heap_caps_get_free_size(c),std::memory_order_relaxed);\n l.store(heap_caps_get_largest_free_block(c),std::memory_order_relaxed);\n}\n'''
 marker='// 15AE real-hardware phase attribution (allocation-free snapshots).'
@@ -27,23 +27,30 @@ repls=[
 ('  if(body.length()) http.addHeader("Content-Type","application/json;charset=UTF-8");','  snap15ae(g15aeAuthFree,g15aeAuthLargest);\n  if(body.length()) http.addHeader("Content-Type","application/json;charset=UTF-8");')]
 for a,b in repls:
  ca=s.count(a); cb=s.count(b)
- if ca==1 and cb==0:
+ # Target-first idempotency: b may contain a as a literal substring, so cb==1
+ # is authoritative. Only patch source when target is absent and source unique.
+ if cb==1:
+  continue
+ if cb>1:
+  raise RuntimeError("15AE phase target duplicated: "+str(cb)+" "+a[:40])
+ if ca==1:
   s=s.replace(a,b,1)
- elif ca==0 and cb==1:
-  pass
  else:
-  raise RuntimeError("15AE phase anchor source/target cardinality invalid: "+str(ca)+"/"+str(cb)+" "+a[:40])
+  raise RuntimeError("15AE phase anchor missing/non-unique: "+str(ca)+" "+a[:40])
 
 # Anchor on the stable semantic JSON member instead of an over-escaped Python
-# spelling. Accept the already-instrumented target on repeated pre-script runs.
+# spelling. Prefer the already-instrumented target on repeated pre-script runs.
 json_anchor='\\"tls_heap_client\\":'
 json_insert='\\"15ae_client_free\\":"+String(g15aeClientFree.load())+",\\"15ae_client_largest\\":"+String(g15aeClientLargest.load())+",\\"15ae_ca_free\\":"+String(g15aeCaFree.load())+",\\"15ae_ca_largest\\":"+String(g15aeCaLargest.load())+",\\"15ae_http_free\\":"+String(g15aeHttpFree.load())+",\\"15ae_http_largest\\":"+String(g15aeHttpLargest.load())+",\\"15ae_url_free\\":"+String(g15aeUrlFree.load())+",\\"15ae_url_largest\\":"+String(g15aeUrlLargest.load())+",\\"15ae_begin_free\\":"+String(g15aeBeginFree.load())+",\\"15ae_begin_largest\\":"+String(g15aeBeginLargest.load())+",\\"15ae_auth_free\\":"+String(g15aeAuthFree.load())+",\\"15ae_auth_largest\\":"+String(g15aeAuthLargest.load())+",\\"tls_heap_client\\":'
 json_marker='\\"15ae_client_free\\":'
-if json_marker not in s:
- if s.count(json_anchor)!=1: raise RuntimeError("15AE JSON semantic anchor count != 1: "+str(s.count(json_anchor)))
- s=s.replace(json_anchor,json_insert,1)
-elif s.count(json_marker)!=1 or s.count(json_insert)!=1:
+if s.count(json_insert)==1 and s.count(json_marker)==1:
+ pass
+elif s.count(json_insert)>1 or s.count(json_marker)>1:
  raise RuntimeError("15AE JSON instrumentation duplicated/malformed")
+elif s.count(json_anchor)==1:
+ s=s.replace(json_anchor,json_insert,1)
+else:
+ raise RuntimeError("15AE JSON semantic anchor count != 1: "+str(s.count(json_anchor)))
 
 # Final cardinality/integrity gate: all six snapshots and the JSON block must be
 # present exactly once. This prevents a repeated build from silently drifting.
