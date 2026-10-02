@@ -1,0 +1,62 @@
+name: 15AC3 BLE RAM lifecycle
+on:
+  push:
+    branches: ["diag/9.36.7.15AC3-ble-ram-lifecycle"]
+  workflow_dispatch:
+
+jobs:
+  audit-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Apply canonical AC1 source generation
+        run: python tools/apply_15ac1_canonical_snapshot.py
+      - name: BLE RAM lifecycle source audit
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          files=['src/powerstream_api.cpp','src/bms.cpp','src/main.cpp','src/web.cpp']
+          text='\n'.join(Path(p).read_text(errors='ignore') for p in files if Path(p).exists())
+          groups={
+            'NimBLE lifecycle':['NimBLE','deinit','advertis'],
+            'heap telemetry':['heap','largest'],
+            'BLE/JK coexistence':['JK','BLE'],
+            'ownership/admission':['heavy','owner','slot_ready'],
+          }
+          failed=[]
+          low=text.lower()
+          for name,tokens in groups.items():
+            hit=[t for t in tokens if t.lower() in low]
+            print(name, 'tokens=', hit)
+            if len(hit)<2: failed.append((name,hit))
+          if failed:
+            raise SystemExit('15AC3 source audit missing evidence: '+repr(failed))
+          print('15AC3 BLE/RAM/lifecycle source audit PASS')
+          PY
+      - name: Full clean USB
+        run: pio run -e lilygo_tcan485 -t fullclean
+      - name: Build USB
+        run: pio run -e lilygo_tcan485
+      - name: Build OTA
+        run: pio run -e lilygo_tcan485_ota
+      - name: Build SPIFFS USB
+        run: pio run -e lilygo_tcan485 -t buildfs
+      - name: Build SPIFFS OTA
+        run: pio run -e lilygo_tcan485_ota -t buildfs
+      - name: Collect binaries
+        run: |
+          mkdir -p artifacts
+          cp .pio/build/lilygo_tcan485/firmware.bin artifacts/firmware-usb.bin
+          cp .pio/build/lilygo_tcan485/spiffs.bin artifacts/spiffs-usb.bin
+          cp .pio/build/lilygo_tcan485_ota/firmware.bin artifacts/firmware-ota.bin
+          cp .pio/build/lilygo_tcan485_ota/spiffs.bin artifacts/spiffs-ota.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 15AC3-ble-ram-lifecycle-build
+          path: artifacts/
