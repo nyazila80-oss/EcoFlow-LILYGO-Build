@@ -45,10 +45,15 @@ assert legacy != new_expr and hard.count(legacy) >= 2 and new_expr in hard
 assert 'NimBLEDevice::startAdvertising();' not in hard
 assert 'NimBLEDevice::deinit' in hard  # appears only in fail-hard lifecycle guard
 assert 'live NimBLE deinit forbidden' in hard
-assert 'fresh-AB6/repeated-descendant composition' in hard
-for v in ('9.36.7.15Z-MEMORY-RELIEF-AB6','9.36.7.15Z-MEMORY-RELIEF-AB7','9.36.7.15Z-MEMORY-RELIEF-AB8','9.36.7.15AF-NO-AUX-RESERVATION','9.36.7.15AG-TLS-PEAK-FIX'):
+versions=('9.36.7.15Z-MEMORY-RELIEF-AB6','9.36.7.15Z-MEMORY-RELIEF-AB7','9.36.7.15Z-MEMORY-RELIEF-AB8','9.36.7.15AF-NO-AUX-RESERVATION','9.36.7.15AG-TLS-PEAK-FIX')
+for v in versions:
     assert v in hard,v
-assert "present==['9.36.7.15Z-MEMORY-RELIEF-AB6']" in hard
+# Composition oracle is structural: fresh AB6 is promoted once, while any already
+# promoted descendant is accepted only when exactly one provenance marker exists.
+assert re.search(r"present\s*=\s*\[v\s+for\s+v\s+in\s+versions\s+if\s+v\s+in\s+p\]",hard)
+assert re.search(r"if\s+present\s*==\s*\['9\.36\.7\.15Z-MEMORY-RELIEF-AB6'\]\s*:",hard)
+assert re.search(r"p\s*=\s*p\.replace\('9\.36\.7\.15Z-MEMORY-RELIEF-AB6','9\.36\.7\.15Z-MEMORY-RELIEF-AB7',1\)",hard)
+assert re.search(r"if\s+len\(present\)\s*!=\s*1\s*:",hard)
 assert 'expected exactly one AB6/AB7-or-later provenance' in hard
 
 # Slot telemetry remains pre-TLS and repeated suffixes are rejected.
