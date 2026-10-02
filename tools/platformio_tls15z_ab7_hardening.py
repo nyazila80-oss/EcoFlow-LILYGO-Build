@@ -10,6 +10,7 @@ h=jkh.read_text(encoding='utf-8'); j=jkc.read_text(encoding='utf-8'); p=cpp.read
 
 # AB7 hardening: add explicit stop-generation provenance. This script composes
 # with the immediately preceding AB6 generator and later AB8/15AF/15AG scripts.
+# Composition contract: fresh-AB6/repeated-descendant composition.
 stop_member='uint32_t stopGeneration=0;'
 if stop_member not in h:
     anchor='uint32_t generation=0;'
