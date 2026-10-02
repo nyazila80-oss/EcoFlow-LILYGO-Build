@@ -9,10 +9,7 @@ api=root/'src'/'powerstream_api.cpp'
 b=ble.read_text(encoding='utf-8')
 p=api.read_text(encoding='utf-8')
 
-# 15AG solution: the PowerStream one-shot path intentionally caches its disconnected
-# NimBLE client/GATT database. On this no-PSRAM ESP32 that retained client competes
-# with mbedTLS for the same INTERNAL|8BIT pool. Reclaim only that idle PS client
-# immediately before Cloud TLS; never deinit NimBLE and never touch the JK client.
+# 15AG solution: reclaim only the idle PowerStream client before Cloud TLS.
 fn='''
 bool powerStreamBleLabReclaimIdleClientForCloud(bool& released){
   released=false;
@@ -39,10 +36,6 @@ if 'bool powerStreamBleLabReclaimIdleClientForCloud(bool& released)' not in b:
 elif b.count('bool powerStreamBleLabReclaimIdleClientForCloud(bool& released)')!=1:
     raise RuntimeError('15AG BLE reclaim function duplicated')
 
-# Place reclaim immediately before WiFiClientSecure construction. 15AE may insert
-# allocation-free snap15ae() instrumentation between the INTERNAL snapshot and the
-# constructor, so anchor on the constructor itself instead of exact surrounding text.
-# Target-first makes repeated PlatformIO pre-script execution idempotent.
 call='''  bool psBleReleased=false;
   if(!powerStreamBleLabReclaimIdleClientForCloud(psBleReleased)){
     err="Cloud TLS blockiert: PowerStream BLE aktiv/busy";
@@ -56,35 +49,79 @@ call='''  bool psBleReleased=false;
 '''
 marker='bool psBleReleased=false;'
 ctor='  WiFiClientSecure client;'
-if p.count(marker)==1:
-    pass
-elif p.count(marker)>1:
-    raise RuntimeError('15AG TLS reclaim target duplicated')
-elif p.count(ctor)==1:
-    p=p.replace(ctor,call+'\n'+ctor,1)
-else:
-    raise RuntimeError('15AG WiFiClientSecure semantic anchor missing/non-unique: '+str(p.count(ctor)))
+if p.count(marker)==1: pass
+elif p.count(marker)>1: raise RuntimeError('15AG TLS reclaim target duplicated')
+elif p.count(ctor)==1: p=p.replace(ctor,call+'\n'+ctor,1)
+else: raise RuntimeError('15AG WiFiClientSecure semantic anchor missing/non-unique: '+str(p.count(ctor)))
 
-# Raise the preflight to the actual measured requirement. 15AF showed mbedTLS later
-# asks for 16717 contiguous bytes after consuming roughly 18 kB during handshake;
-# entering TLS below 32 kB largest8 only creates a deterministic allocation failure.
 old_thr='static constexpr uint32_t TLS_GET_MIN_LARGEST8 = 10240;'
 new_thr='static constexpr uint32_t TLS_GET_MIN_LARGEST8 = 32768;'
-if p.count(new_thr)==1:
-    pass
-elif p.count(new_thr)>1:
-    raise RuntimeError('15AG TLS admission threshold duplicated')
-elif p.count(old_thr)==1:
-    p=p.replace(old_thr,new_thr,1)
-else:
-    raise RuntimeError('15AG TLS admission threshold source missing/non-unique')
+if p.count(new_thr)==1: pass
+elif p.count(new_thr)>1: raise RuntimeError('15AG TLS admission threshold duplicated')
+elif p.count(old_thr)==1: p=p.replace(old_thr,new_thr,1)
+else: raise RuntimeError('15AG TLS admission threshold source missing/non-unique')
 
-# Provenance: preserve idempotency if this script runs repeatedly.
 old_ver='9.36.7.15AF-NO-AUX-RESERVATION'
 new_ver='9.36.7.15AG-TLS-PEAK-FIX'
 if new_ver not in p:
     if old_ver not in p: raise RuntimeError('15AG provenance source missing')
     p=p.replace(old_ver,new_ver)
+
+# Per-job TLS diagnostic hygiene. A preflight-aborted job must never expose POST,
+# X509 or failed-allocation values inherited from an earlier job.
+diag_decl='static std::atomic<uint32_t> gTlsDiagJobId{0};\nstatic std::atomic<bool> gTlsAttemptedThisJob{false};'
+trace_decl='static std::atomic<uint32_t> gCloudTraceJobId{0};'
+if diag_decl not in p:
+    if p.count(trace_decl)!=1: raise RuntimeError('15AG diag trace declaration anchor missing/non-unique')
+    p=p.replace(trace_decl,trace_decl+'\n'+diag_decl,1)
+
+reset_fn='''
+static void resetTlsDiagnosticsForJob(uint32_t jobId){
+  gTlsDiagJobId.store(jobId,std::memory_order_relaxed);
+  gTlsAttemptedThisJob.store(false,std::memory_order_relaxed);
+  gTlsHeapClient=0; gTlsLargestClient=0; gTlsHeapCa=0; gTlsLargestCa=0;
+  gTlsHeapBeginPre=0; gTlsLargestBeginPre=0; gTlsHeapBeginPost=0; gTlsLargestBeginPost=0;
+  gTlsHeapGetPre=0; gTlsLargestGetPre=0; gTlsHeapGetPost=0; gTlsLargestGetPost=0;
+  gDnsOk=-1; gDnsIp=0; gTcp443Ok=-1;
+  gTlsInternalFreePre=0; gTlsInternalLargestPre=0; gTlsInternalFreePost=0; gTlsInternalLargestPost=0;
+  gTlsInternalHmacPreFree=0; gTlsInternalHmacPreLargest=0; gTlsInternalHmacPostFree=0; gTlsInternalHmacPostLargest=0;
+  gTlsInternalHeadersPostFree=0; gTlsInternalHeadersPostLargest=0;
+  gTlsInternalGetPreFree=0; gTlsInternalGetPreLargest=0; gTlsInternalGetPostFree=0; gTlsInternalGetPostLargest=0;
+  gTlsEpochPre=0; gTlsEpochPost=0; gTlsTimeSanePre=false; gTlsTimeSanePost=false;
+  gTlsInternalPreVerifyFree=0; gTlsInternalPreVerifyLargest=0; gTlsInternalPostVerifyFree=0; gTlsInternalPostVerifyLargest=0;
+  gTlsFailedAllocCount=0; gTlsFailedAllocSize=0; gTlsFailedAllocCaps=0; gTlsFailedAllocTask=0;
+  gTlsFailedCapsFree=0; gTlsFailedCapsLargest=0; gTlsFailedInternalFree=0; gTlsFailedInternalLargest=0;
+  gTlsFailed8BitFree=0; gTlsFailed8BitLargest=0; gTlsFailedDmaFree=0; gTlsFailedDmaLargest=0;
+  gTlsFailed32BitFree=0; gTlsFailed32BitLargest=0;
+  gTlsAllocWindow.store(false,std::memory_order_release);
+  { ApiLock lk(pdMS_TO_TICKS(50)); if(lk.held){ psApiState.lastHttpCode=-1; psApiState.lastResponseBytes=0; } }
+}
+'''
+job_comment='// AUDIT20.4.5.9.13: dedicated cloud worker.'
+if 'static void resetTlsDiagnosticsForJob(uint32_t jobId)' not in p:
+    if p.count(job_comment)!=1: raise RuntimeError('15AG diag reset insertion anchor missing/non-unique')
+    p=p.replace(job_comment,reset_fn+'\n'+job_comment,1)
+
+# Reset after assigning the new job id, before publishing pending=true.
+queue_old='gJobId=n;gCloudTraceJobId=n;cloudDiagMark(CLOUD_DIAG_QUEUED,n);gJobPending=true;'
+queue_new='gJobId=n;gCloudTraceJobId=n;resetTlsDiagnosticsForJob(n);cloudDiagMark(CLOUD_DIAG_QUEUED,n);gJobPending=true;'
+if queue_new not in p:
+    if p.count(queue_old)!=1: raise RuntimeError('15AG queue reset anchor missing/non-unique')
+    p=p.replace(queue_old,queue_new,1)
+
+# Mark a real TLS GET attempt only after the preflight gate has passed.
+get_anchor='if(method=="GET") {\n    gTlsFailedAllocCount.store(0,std::memory_order_relaxed);'
+get_mark='if(method=="GET") {\n    gTlsAttemptedThisJob.store(true,std::memory_order_relaxed);\n    gTlsFailedAllocCount.store(0,std::memory_order_relaxed);'
+if get_mark not in p:
+    if p.count(get_anchor)!=1: raise RuntimeError('15AG TLS attempted anchor missing/non-unique')
+    p=p.replace(get_anchor,get_mark,1)
+
+# Export ownership so stale-state regressions are visible in one JSON snapshot.
+json_anchor='return String("{\\\"ok\\\":true,\\\"job_id\\\":")+String(gJobId.load())+'
+json_new='return String("{\\\"ok\\\":true,\\\"job_id\\\":")+String(gJobId.load())+",\\\"tls_diag_job_id\\\":"+String(gTlsDiagJobId.load())+",\\\"tls_attempted_this_job\\\":"+(gTlsAttemptedThisJob.load()?"true":"false")+'
+if 'tls_attempted_this_job' not in p:
+    if p.count(json_anchor)!=1: raise RuntimeError('15AG JSON ownership anchor missing/non-unique')
+    p=p.replace(json_anchor,json_new,1)
 
 code=re.sub(r'//[^\n]*|/\*.*?\*/','',p+'\n'+b,flags=re.S)
 for bad in ('setInsecure(', 'MBEDTLS_SSL_VERIFY_NONE'):
@@ -96,7 +133,10 @@ if b.count('bool powerStreamBleLabReclaimIdleClientForCloud(bool& released)')!=1
 if p.count(marker)!=1: raise RuntimeError('15AG reclaim call cardinality != 1')
 if p.count(new_thr)!=1: raise RuntimeError('15AG TLS admission threshold cardinality != 1')
 if new_ver not in p: raise RuntimeError('15AG provenance missing')
+if p.count('resetTlsDiagnosticsForJob(n)')!=1: raise RuntimeError('15AG per-job diag reset missing/duplicated')
+if p.count('gTlsAttemptedThisJob.store(true')!=1: raise RuntimeError('15AG TLS attempt marker missing/duplicated')
+if 'tls_diag_job_id' not in p or 'tls_attempted_this_job' not in p: raise RuntimeError('15AG JSON ownership fields missing')
 
 ble.write_text(b,encoding='utf-8')
 api.write_text(p,encoding='utf-8')
-print('[15AG] idle PowerStream BLE client reclaimed before TLS; 15AE-compatible; JK/NimBLE host retained; CA verify retained')
+print('[15AG] reclaim retained; TLS diagnostics reset and job-owned; CA verification retained')
