@@ -22,10 +22,14 @@ for a,b in repls:
  if a not in s: raise RuntimeError("15AE phase anchor missing: "+a[:50])
  s=s.replace(a,b,1)
 
-json_anchor='"\\\"tls_heap_client\\\":"+String(gTlsHeapClient.load())+'
-json_insert='''"\\\"15ae_client_free\\\":"+String(g15aeClientFree.load())+",\\\"15ae_client_largest\\\":"+String(g15aeClientLargest.load())+",\\\"15ae_ca_free\\\":"+String(g15aeCaFree.load())+",\\\"15ae_ca_largest\\\":"+String(g15aeCaLargest.load())+",\\\"15ae_http_free\\\":"+String(g15aeHttpFree.load())+",\\\"15ae_http_largest\\\":"+String(g15aeHttpLargest.load())+",\\\"15ae_url_free\\\":"+String(g15aeUrlFree.load())+",\\\"15ae_url_largest\\\":"+String(g15aeUrlLargest.load())+",\\\"15ae_begin_free\\\":"+String(g15aeBeginFree.load())+",\\\"15ae_begin_largest\\\":"+String(g15aeBeginLargest.load())+",\\\"15ae_auth_free\\\":"+String(g15aeAuthFree.load())+",\\\"15ae_auth_largest\\\":"+String(g15aeAuthLargest.load())+","+'''
-if json_anchor not in s: raise RuntimeError("15AE JSON anchor missing")
-s=s.replace(json_anchor,json_insert+json_anchor,1)
+# Anchor on the stable semantic JSON member instead of an over-escaped Python
+# spelling. AB6/AB7/AB8 pre-scripts may reformat generated source, but the
+# tls_heap_client member itself is part of the runtime diagnostic contract.
+json_anchor='\\"tls_heap_client\\":'
+json_insert='\\"15ae_client_free\\":"+String(g15aeClientFree.load())+",\\"15ae_client_largest\\":"+String(g15aeClientLargest.load())+",\\"15ae_ca_free\\":"+String(g15aeCaFree.load())+",\\"15ae_ca_largest\\":"+String(g15aeCaLargest.load())+",\\"15ae_http_free\\":"+String(g15aeHttpFree.load())+",\\"15ae_http_largest\\":"+String(g15aeHttpLargest.load())+",\\"15ae_url_free\\":"+String(g15aeUrlFree.load())+",\\"15ae_url_largest\\":"+String(g15aeUrlLargest.load())+",\\"15ae_begin_free\\":"+String(g15aeBeginFree.load())+",\\"15ae_begin_largest\\":"+String(g15aeBeginLargest.load())+",\\"15ae_auth_free\\":"+String(g15aeAuthFree.load())+",\\"15ae_auth_largest\\":"+String(g15aeAuthLargest.load())+",\\"tls_heap_client\\":'
+if s.count(json_anchor) != 1:
+ raise RuntimeError("15AE JSON semantic anchor count != 1: "+str(s.count(json_anchor)))
+s=s.replace(json_anchor,json_insert,1)
 
 p.write_text(s,encoding="utf-8")
 print("15AE phase attribution instrumentation applied")
