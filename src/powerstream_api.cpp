@@ -1,6 +1,7 @@
 #include "powerstream_api.h"
 #include "resource_gate.h"
 #include "cloud_boot_diag.h"
+#include "powerstream_ble_lab.h"
 #include <esp_heap_caps.h>
 #include <Preferences.h>
 #include <WiFi.h>
@@ -36,6 +37,65 @@ static std::atomic<int32_t> gDnsOk{-1}, gTcp443Ok{-1};
 static std::atomic<uint32_t> gDnsIp{0};
 static std::atomic<uint32_t> gTlsInternalFreePre{0}, gTlsInternalLargestPre{0};
 static std::atomic<uint32_t> gTlsInternalFreePost{0}, gTlsInternalLargestPost{0};
+// 9.36.7.15D: runtime credential provenance + INTERNAL-DRAM phase trace.
+// Fingerprints are truncated SHA-256 values; raw credentials are never exported.
+static std::atomic<uint32_t> gCredAccessLen{0}, gCredSecretLen{0};
+static std::atomic<bool> gCredAccessNvsMatch{false}, gCredSecretNvsMatch{false};
+static std::atomic<uint32_t> gCredAccessFp{0}, gCredSecretFp{0};
+static std::atomic<bool> gCredRequestAccessMatch{false}, gCredRequestSecretMatch{false};
+static std::atomic<uint32_t> gTlsInternalHmacPreFree{0}, gTlsInternalHmacPreLargest{0};
+static std::atomic<uint32_t> gTlsInternalHmacPostFree{0}, gTlsInternalHmacPostLargest{0};
+static std::atomic<uint32_t> gTlsInternalHeadersPostFree{0}, gTlsInternalHeadersPostLargest{0};
+static std::atomic<uint32_t> gTlsInternalGetPreFree{0}, gTlsInternalGetPreLargest{0};
+static std::atomic<uint32_t> gTlsInternalGetPostFree{0}, gTlsInternalGetPostLargest{0};
+static std::atomic<int64_t> gTlsEpochPre{0};
+static std::atomic<int64_t> gTlsEpochPost{0};
+static std::atomic<bool> gTlsTimeSanePre{false};
+static std::atomic<bool> gTlsTimeSanePost{false};
+static std::atomic<uint32_t> gTlsInternalPreVerifyFree{0};
+static std::atomic<uint32_t> gTlsInternalPreVerifyLargest{0};
+static std::atomic<uint32_t> gTlsInternalPostVerifyFree{0};
+static std::atomic<uint32_t> gTlsInternalPostVerifyLargest{0};
+
+static bool tlsEpochSane(time_t t){ return t >= (time_t)1704067200; }
+
+// 9.36.7.15F: capture the failed allocation and the allocator pool that had to satisfy it.
+static std::atomic<bool> gTlsAllocWindow{false};
+static std::atomic<uint32_t> gTlsFailedAllocCount{0};
+static std::atomic<uint32_t> gTlsFailedAllocSize{0};
+static std::atomic<uint32_t> gTlsFailedAllocCaps{0};
+static std::atomic<uint32_t> gTlsFailedAllocTask{0};
+static std::atomic<uint32_t> gTlsFailedCapsFree{0}, gTlsFailedCapsLargest{0};
+static std::atomic<uint32_t> gTlsFailedInternalFree{0}, gTlsFailedInternalLargest{0};
+static std::atomic<uint32_t> gTlsFailed8BitFree{0}, gTlsFailed8BitLargest{0};
+static std::atomic<uint32_t> gTlsFailedDmaFree{0}, gTlsFailedDmaLargest{0};
+static std::atomic<uint32_t> gTlsFailed32BitFree{0}, gTlsFailed32BitLargest{0};
+static std::atomic<int32_t> gTlsAllocHookRc{-999};
+static std::atomic<bool> gTlsAllocHookRegistered{false};
+static void tlsFailedAllocHook(size_t requestedSize, uint32_t caps, const char*) {
+  if(!gTlsAllocWindow.load(std::memory_order_relaxed)) return;
+  gTlsFailedAllocCount.fetch_add(1,std::memory_order_relaxed);
+  gTlsFailedAllocSize.store((uint32_t)requestedSize,std::memory_order_relaxed);
+  gTlsFailedAllocCaps.store(caps,std::memory_order_relaxed);
+  gTlsFailedAllocTask.store((uint32_t)(uintptr_t)xTaskGetCurrentTaskHandle(),std::memory_order_relaxed);
+  // Snapshot only allocator metadata; do not allocate/log/String-build inside the failure callback.
+  gTlsFailedCapsFree.store((uint32_t)heap_caps_get_free_size(caps),std::memory_order_relaxed);
+  gTlsFailedCapsLargest.store((uint32_t)heap_caps_get_largest_free_block(caps),std::memory_order_relaxed);
+  gTlsFailedInternalFree.store((uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),std::memory_order_relaxed);
+  gTlsFailedInternalLargest.store((uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),std::memory_order_relaxed);
+  gTlsFailed8BitFree.store((uint32_t)heap_caps_get_free_size(MALLOC_CAP_8BIT),std::memory_order_relaxed);
+  gTlsFailed8BitLargest.store((uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),std::memory_order_relaxed);
+  gTlsFailedDmaFree.store((uint32_t)heap_caps_get_free_size(MALLOC_CAP_DMA),std::memory_order_relaxed);
+  gTlsFailedDmaLargest.store((uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_DMA),std::memory_order_relaxed);
+  gTlsFailed32BitFree.store((uint32_t)heap_caps_get_free_size(MALLOC_CAP_32BIT),std::memory_order_relaxed);
+  gTlsFailed32BitLargest.store((uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_32BIT),std::memory_order_relaxed);
+}
+static void ensureTlsAllocHook(){
+  bool expected=false;
+  if(gTlsAllocHookRegistered.compare_exchange_strong(expected,true,std::memory_order_relaxed)){
+    gTlsAllocHookRc.store((int32_t)heap_caps_register_failed_alloc_callback(tlsFailedAllocHook),std::memory_order_relaxed);
+  }
+}
 static inline void tlsMemSnap(std::atomic<uint32_t>& freeDst,std::atomic<uint32_t>& largestDst){
   freeDst.store(ESP.getFreeHeap(),std::memory_order_relaxed);
   largestDst.store(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),std::memory_order_relaxed);
@@ -76,6 +136,25 @@ MrY=
 -----END CERTIFICATE-----
 )EOF";
 
+static uint32_t credentialFingerprint(const String& value) {
+  unsigned char out[32]{};
+  const mbedtls_md_info_t* info=mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+  if(!info || mbedtls_md(info,(const unsigned char*)value.c_str(),value.length(),out)!=0) return 0;
+  return ((uint32_t)out[0]<<24)|((uint32_t)out[1]<<16)|((uint32_t)out[2]<<8)|out[3];
+}
+static String fpHex(uint32_t v){ char b[9]; snprintf(b,sizeof(b),"%08lx",(unsigned long)v); return String(b); }
+static void credentialProvenanceRefresh(bool verifyNvs) {
+  gCredAccessLen.store(gAccess.length(),std::memory_order_relaxed);
+  gCredSecretLen.store(gSecret.length(),std::memory_order_relaxed);
+  gCredAccessFp.store(credentialFingerprint(gAccess),std::memory_order_relaxed);
+  gCredSecretFp.store(credentialFingerprint(gSecret),std::memory_order_relaxed);
+  if(!verifyNvs) return;
+  Preferences p; p.begin("psapi",true);
+  String a=p.getString("access",""); String k=p.getString("secret",""); p.end();
+  gCredAccessNvsMatch.store(a==gAccess,std::memory_order_relaxed);
+  gCredSecretNvsMatch.store(k==gSecret,std::memory_order_relaxed);
+}
+
 static String maskKey(const String& s) {
   if (!s.length()) return "";
   if (s.length() <= 8) return "********";
@@ -83,6 +162,7 @@ static String maskKey(const String& s) {
 }
 
 void powerStreamApiLoad() {
+  ensureTlsAllocHook();
   ApiLock lk(pdMS_TO_TICKS(1000)); if(!lk.held) return;
   Preferences p; p.begin("psapi", true);
   gSn = p.getString("sn", "HW51ZEH49GB10829");
@@ -90,6 +170,7 @@ void powerStreamApiLoad() {
   gSecret = p.getString("secret", "");
   p.end();
   psApiState.configured = gSn.length() && gAccess.length() && gSecret.length();
+  credentialProvenanceRefresh(true);
 }
 
 bool powerStreamApiSave(const String& sn, const String& accessKey, const String& secretKey) {
@@ -105,6 +186,7 @@ bool powerStreamApiSave(const String& sn, const String& accessKey, const String&
   p.putString("secret", gSecret);
   p.end();
   psApiState.configured = gSn.length() && gAccess.length() && gSecret.length();
+  credentialProvenanceRefresh(true);
   return true;
 }
 
@@ -112,6 +194,7 @@ bool powerStreamApiClear() {
   ApiLock lk(0); if(!lk.held) return false;
   Preferences p; p.begin("psapi", false); p.clear(); p.end();
   gAccess=""; gSecret=""; gSn="HW51ZEH49GB10829";
+  credentialProvenanceRefresh(true);
   psApiState = PowerStreamApiState();
   return true;
 }
@@ -137,11 +220,26 @@ static bool authHeaders(HTTPClient& http, const String& flattened, String& err) 
   char tsBuf[24]; snprintf(tsBuf, sizeof(tsBuf), "%llu", (unsigned long long)((uint64_t)now * 1000ULL));
   String timestamp(tsBuf);
   String signBase = flattened.length() ? flattened + "&" : "";
-  signBase += "accessKey="+gAccess+"&nonce="+nonce+"&timestamp="+timestamp;
-  String sig=hmac256(signBase,gSecret);
+  String requestAccess;
+  String requestSecret;
+  {
+    ApiLock credentialSnapshot(pdMS_TO_TICKS(250));
+    if(!credentialSnapshot.held){err="Credential-Snapshot konnte nicht gesperrt werden";return false;}
+    requestAccess=gAccess;
+    requestSecret=gSecret;
+  }
+  if(!requestAccess.length() || !requestSecret.length()){err="EcoFlow API Credentials fehlen";return false;}
+  const uint32_t requestSecretFp=credentialFingerprint(requestSecret);
+  signBase += "accessKey="+requestAccess+"&nonce="+nonce+"&timestamp="+timestamp;
+  tlsInternalSnap(gTlsInternalHmacPreFree,gTlsInternalHmacPreLargest);
+  String sig=hmac256(signBase,requestSecret);
+  tlsInternalSnap(gTlsInternalHmacPostFree,gTlsInternalHmacPostLargest);
+  gCredRequestSecretMatch.store(requestSecretFp==credentialFingerprint(requestSecret),std::memory_order_relaxed);
   if(!sig.length()){err="HMAC-SHA256 fehlgeschlagen";return false;}
-  http.addHeader("accessKey",gAccess); http.addHeader("nonce",nonce);
+  http.addHeader("accessKey",requestAccess); http.addHeader("nonce",nonce);
   http.addHeader("timestamp",timestamp); http.addHeader("sign",sig);
+  gCredRequestAccessMatch.store(credentialFingerprint(requestAccess)==credentialFingerprint(requestAccess),std::memory_order_relaxed);
+  tlsInternalSnap(gTlsInternalHeadersPostFree,gTlsInternalHeadersPostLargest);
   return true;
 }
 
@@ -222,6 +320,12 @@ static bool apiRequest(const String& method, const String& path, const String& q
   int httpCode=-1;
   cloudDiagMark(CLOUD_DIAG_HTTP_GET,gCloudTraceJobId.load());
   tlsMemSnap(gTlsHeapGetPre,gTlsLargestGetPre);
+  tlsInternalSnap(gTlsInternalGetPreFree,gTlsInternalGetPreLargest);
+  const time_t tlsNowPre=time(nullptr);
+  gTlsEpochPre=(int64_t)tlsNowPre;
+  gTlsTimeSanePre=tlsEpochSane(tlsNowPre);
+  gTlsInternalPreVerifyFree=heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+  gTlsInternalPreVerifyLargest=heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
   // Do not enter mbedTLS when fragmentation is already below the configured
   // receive-buffer requirement plus modest allocator/record overhead.
   // This is fail-closed and preserves the existing JK/BLE session.
@@ -232,8 +336,27 @@ static bool apiRequest(const String& method, const String& path, const String& q
     http.end();
     return false;
   }
-  if(method=="GET") httpCode=http.GET(); else if(method=="PUT") httpCode=http.PUT(body); else {err="Interner HTTP-Methodenfehler";http.end();return false;}
+  if(method=="GET") {
+    gTlsFailedAllocCount.store(0,std::memory_order_relaxed);
+    gTlsFailedAllocSize.store(0,std::memory_order_relaxed);
+    gTlsFailedAllocCaps.store(0,std::memory_order_relaxed);
+    gTlsFailedAllocTask.store(0,std::memory_order_relaxed);
+    gTlsFailedCapsFree.store(0,std::memory_order_relaxed); gTlsFailedCapsLargest.store(0,std::memory_order_relaxed);
+    gTlsFailedInternalFree.store(0,std::memory_order_relaxed); gTlsFailedInternalLargest.store(0,std::memory_order_relaxed);
+    gTlsFailed8BitFree.store(0,std::memory_order_relaxed); gTlsFailed8BitLargest.store(0,std::memory_order_relaxed);
+    gTlsFailedDmaFree.store(0,std::memory_order_relaxed); gTlsFailedDmaLargest.store(0,std::memory_order_relaxed);
+    gTlsFailed32BitFree.store(0,std::memory_order_relaxed); gTlsFailed32BitLargest.store(0,std::memory_order_relaxed);
+    gTlsAllocWindow.store(true,std::memory_order_release);
+    httpCode=http.GET();
+  const time_t tlsNowPost=time(nullptr);
+  gTlsEpochPost=(int64_t)tlsNowPost;
+  gTlsTimeSanePost=tlsEpochSane(tlsNowPost);
+  gTlsInternalPostVerifyFree=heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+  gTlsInternalPostVerifyLargest=heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+    gTlsAllocWindow.store(false,std::memory_order_release);
+  } else if(method=="PUT") httpCode=http.PUT(body); else {err="Interner HTTP-Methodenfehler";http.end();return false;}
   tlsMemSnap(gTlsHeapGetPost,gTlsLargestGetPost);
+  tlsInternalSnap(gTlsInternalGetPostFree,gTlsInternalGetPostLargest);
   tlsInternalSnap(gTlsInternalFreePost,gTlsInternalLargestPost);
   cloudDiagMark(CLOUD_DIAG_HTTP_REPLY,gCloudTraceJobId.load(),httpCode);
   if(httpCode<0){
@@ -375,6 +498,25 @@ static void runCloudJobOnLoopTask(){
   // Close WebSockets and reject reconnects while mbedTLS owns the scarce internal DRAM.
   webCloudQuiesceBegin();
   delay(20);
+  // 15G.2 resource handoff: delete only an IDLE, DISCONNECTED cached
+  // PowerStream BLE client. JK proxy/NimBLE host/BMS link stay alive.
+  bool psBleClientReleased=false;
+  const uint32_t reclaimFreeBefore=ESP.getFreeHeap();
+  const uint32_t reclaimLargestBefore=heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+  const bool reclaimSafe=powerStreamBleLabReclaimIdleClientForCloud(psBleClientReleased);
+  const uint32_t reclaimFreeAfter=ESP.getFreeHeap();
+  const uint32_t reclaimLargestAfter=heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+  if(!reclaimSafe){
+    setJobResult(false,"Cloud TLS abgebrochen: PowerStream BLE nicht sicher im Idle-Zustand");
+    gCloudStackMinBytes=(uint32_t)uxTaskGetStackHighWaterMark(nullptr);
+    cloudDiagMark(CLOUD_DIAG_FINISHED,gJobId.load(),-1,0,false);
+    gJobRunning=false; gJobReserved=false; heavyOpRelease(HeavyOpOwner::POWERSTREAM_CLOUD);
+    webCloudQuiesceEnd();
+    return;
+  }
+  (void)psBleClientReleased;
+  (void)reclaimFreeBefore; (void)reclaimLargestBefore;
+  (void)reclaimFreeAfter; (void)reclaimLargestAfter;
   gCloudHeapBefore=ESP.getFreeHeap();
   gCloudLargestBefore=heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
   cloudDiagMark(CLOUD_DIAG_WORKER,gJobId.load());
@@ -394,4 +536,12 @@ static bool queueJob(CloudJobType t,int u,int l,uint32_t &id){bool expected=fals
 bool powerStreamApiQueueTest(uint32_t&id){return queueJob(CloudJobType::TEST,-1,-1,id);}
 bool powerStreamApiQueueRead(uint32_t&id){return queueJob(CloudJobType::READ,-1,-1,id);}
 bool powerStreamApiQueueSetLimits(int,int,uint32_t&){return false;}
-String powerStreamApiJobStatusJson(){ensureJobMutex();String m;bool ok=false;if(gJobMutex&&xSemaphoreTake(gJobMutex,pdMS_TO_TICKS(50))==pdTRUE){m=gJobMessage;ok=gJobOk;xSemaphoreGive(gJobMutex);}m.replace("\\","\\\\");m.replace("\"","\\\"");const bool running=gJobRunning.load(),pending=gJobPending.load(),reserved=gJobReserved.load();PowerStreamApiState st=powerStreamApiStateSnapshot();return String("{\"ok\":true,\"job_id\":")+String(gJobId.load())+",\"pending\":"+(pending?"true":"false")+",\"running\":"+(running?"true":"false")+",\"done\":"+((!reserved&&gJobId.load())?"true":"false")+",\"result_ok\":"+(ok?"true":"false")+",\"upper\":"+String(gJobUpper.load())+",\"lower\":"+String(gJobLower.load())+",\"bat_soc\":"+String(st.batSoc)+",\"bat_input_volt_raw\":"+String(st.batInputVolt)+",\"bat_input_cur_raw\":"+String(st.batInputCur)+",\"bat_temp_raw\":"+String(st.batTemp)+",\"bp_type\":"+String(st.bpType)+",\"interface_conn_flag\":"+String(st.interfaceConnFlag)+",\"supply_priority\":"+String(st.supplyPriority)+",\"bms_req_chg_vol\":"+String(st.bmsReqChgVol)+",\"bms_req_chg_amp\":"+String(st.bmsReqChgAmp)+",\"inv_on_off\":"+String(st.invOnOff)+",\"wifi_rssi\":"+String(st.wifiRssi)+",\"last_http_code\":"+String(st.lastHttpCode)+",\"last_response_bytes\":"+String(st.lastResponseBytes)+",\"cloud_stack_min_bytes\":"+String(gCloudStackMinBytes.load())+",\"heap_before\":"+String(gCloudHeapBefore.load())+",\"largest_before\":"+String(gCloudLargestBefore.load())+",\"tls_heap_client\":"+String(gTlsHeapClient.load())+",\"tls_largest_client\":"+String(gTlsLargestClient.load())+",\"tls_heap_ca\":"+String(gTlsHeapCa.load())+",\"tls_largest_ca\":"+String(gTlsLargestCa.load())+",\"tls_heap_begin_pre\":"+String(gTlsHeapBeginPre.load())+",\"tls_largest_begin_pre\":"+String(gTlsLargestBeginPre.load())+",\"tls_heap_begin_post\":"+String(gTlsHeapBeginPost.load())+",\"tls_largest_begin_post\":"+String(gTlsLargestBeginPost.load())+",\"tls_heap_get_pre\":"+String(gTlsHeapGetPre.load())+",\"tls_largest_get_pre\":"+String(gTlsLargestGetPre.load())+",\"tls_heap_get_post\":"+String(gTlsHeapGetPost.load())+",\"tls_largest_get_post\":"+String(gTlsLargestGetPost.load())+",\"dns_ok\":"+String(gDnsOk.load())+",\"dns_ip_u32\":"+String(gDnsIp.load())+",\"tcp_443_ok\":"+String(gTcp443Ok.load())+",\"internal_free_pre\":"+String(gTlsInternalFreePre.load())+",\"internal_largest_pre\":"+String(gTlsInternalLargestPre.load())+",\"internal_free_post\":"+String(gTlsInternalFreePost.load())+",\"internal_largest_post\":"+String(gTlsInternalLargestPost.load())+",\"heavy_owner\":\""+String(heavyOpOwnerName())+"\",\"heavy_age_ms\":"+String(heavyOpAgeMs())+",\"heavy_acquires\":"+String(heavyOpAcquireCount())+",\"heavy_release_mismatch\":"+String(heavyOpReleaseMismatchCount())+",\"message\":\""+m+"\"}";}
+String powerStreamApiJobStatusJson(){ensureJobMutex();String m;bool ok=false;if(gJobMutex&&xSemaphoreTake(gJobMutex,pdMS_TO_TICKS(50))==pdTRUE){m=gJobMessage;ok=gJobOk;xSemaphoreGive(gJobMutex);}m.replace("\\","\\\\");m.replace("\"","\\\"");const bool running=gJobRunning.load(),pending=gJobPending.load(),reserved=gJobReserved.load();PowerStreamApiState st=powerStreamApiStateSnapshot();return String("{\"ok\":true,\"job_id\":")+String(gJobId.load())+",\"pending\":"+(pending?"true":"false")+",\"running\":"+(running?"true":"false")+",\"done\":"+((!reserved&&gJobId.load())?"true":"false")+",\"result_ok\":"+(ok?"true":"false")+",\"upper\":"+String(gJobUpper.load())+",\"lower\":"+String(gJobLower.load())+",\"bat_soc\":"+String(st.batSoc)+",\"bat_input_volt_raw\":"+String(st.batInputVolt)+",\"bat_input_cur_raw\":"+String(st.batInputCur)+",\"bat_temp_raw\":"+String(st.batTemp)+",\"bp_type\":"+String(st.bpType)+",\"interface_conn_flag\":"+String(st.interfaceConnFlag)+",\"supply_priority\":"+String(st.supplyPriority)+",\"bms_req_chg_vol\":"+String(st.bmsReqChgVol)+",\"bms_req_chg_amp\":"+String(st.bmsReqChgAmp)+",\"inv_on_off\":"+String(st.invOnOff)+",\"wifi_rssi\":"+String(st.wifiRssi)+",\"last_http_code\":"+String(st.lastHttpCode)+",\"last_response_bytes\":"+String(st.lastResponseBytes)+",\"cloud_stack_min_bytes\":"+String(gCloudStackMinBytes.load())+",\"heap_before\":"+String(gCloudHeapBefore.load())+",\"largest_before\":"+String(gCloudLargestBefore.load())+",\"tls_heap_client\":"+String(gTlsHeapClient.load())+",\"tls_largest_client\":"+String(gTlsLargestClient.load())+",\"tls_heap_ca\":"+String(gTlsHeapCa.load())+",\"tls_largest_ca\":"+String(gTlsLargestCa.load())+",\"tls_heap_begin_pre\":"+String(gTlsHeapBeginPre.load())+",\"tls_largest_begin_pre\":"+String(gTlsLargestBeginPre.load())+",\"tls_heap_begin_post\":"+String(gTlsHeapBeginPost.load())+",\"tls_largest_begin_post\":"+String(gTlsLargestBeginPost.load())+",\"tls_heap_get_pre\":"+String(gTlsHeapGetPre.load())+",\"tls_largest_get_pre\":"+String(gTlsLargestGetPre.load())+",\"tls_heap_get_post\":"+String(gTlsHeapGetPost.load())+",\"tls_largest_get_post\":"+String(gTlsLargestGetPost.load())+",\"dns_ok\":"+String(gDnsOk.load())+",\"dns_ip_u32\":"+String(gDnsIp.load())+",\"tcp_443_ok\":"+String(gTcp443Ok.load())+",\"cred_access_len\":"+String(gCredAccessLen.load())+",\"cred_secret_len\":"+String(gCredSecretLen.load())+",\"cred_access_nvs_match\":"+(gCredAccessNvsMatch.load()?"true":"false")+",\"cred_secret_nvs_match\":"+(gCredSecretNvsMatch.load()?"true":"false")+",\"cred_access_fp\":\""+fpHex(gCredAccessFp.load())+"\",\"cred_secret_fp\":\""+fpHex(gCredSecretFp.load())+"\",\"cred_request_access_match\":"+(gCredRequestAccessMatch.load()?"true":"false")+",\"cred_request_secret_match\":"+(gCredRequestSecretMatch.load()?"true":"false")+",\"tls_internal_hmac_pre_free\":"+String(gTlsInternalHmacPreFree.load())+",\"tls_internal_hmac_pre_largest\":"+String(gTlsInternalHmacPreLargest.load())+",\"tls_internal_hmac_post_free\":"+String(gTlsInternalHmacPostFree.load())+",\"tls_internal_hmac_post_largest\":"+String(gTlsInternalHmacPostLargest.load())+",\"tls_internal_headers_post_free\":"+String(gTlsInternalHeadersPostFree.load())+",\"tls_internal_headers_post_largest\":"+String(gTlsInternalHeadersPostLargest.load())+",\"tls_internal_get_pre_free\":"+String(gTlsInternalGetPreFree.load())+",\"tls_internal_get_pre_largest\":"+String(gTlsInternalGetPreLargest.load())+",\"tls_internal_get_post_free\":"+String(gTlsInternalGetPostFree.load())+",\"tls_internal_get_post_largest\":"+String(gTlsInternalGetPostLargest.load())+",\"tls_failed_alloc_count\":"+String(gTlsFailedAllocCount.load())+",\"tls_failed_alloc_size\":"+String(gTlsFailedAllocSize.load())+",\"tls_failed_alloc_caps\":"+String(gTlsFailedAllocCaps.load())+",\"tls_failed_alloc_task\":"+String(gTlsFailedAllocTask.load())+",\"tls_failed_caps_free\":"+String(gTlsFailedCapsFree.load())+",\"tls_failed_caps_largest\":"+String(gTlsFailedCapsLargest.load())+",\"tls_failed_internal_free\":"+String(gTlsFailedInternalFree.load())+",\"tls_failed_internal_largest\":"+String(gTlsFailedInternalLargest.load())+",\"tls_failed_8bit_free\":"+String(gTlsFailed8BitFree.load())+",\"tls_failed_8bit_largest\":"+String(gTlsFailed8BitLargest.load())+",\"tls_failed_dma_free\":"+String(gTlsFailedDmaFree.load())+",\"tls_failed_dma_largest\":"+String(gTlsFailedDmaLargest.load())+",\"tls_failed_32bit_free\":"+String(gTlsFailed32BitFree.load())+",\"tls_failed_32bit_largest\":"+String(gTlsFailed32BitLargest.load())+",\"tls_alloc_hook_rc\":"+String(gTlsAllocHookRc.load())+",\"tls_epoch_pre\":"+String((long long)gTlsEpochPre.load())+","+
+    "\"tls_epoch_post\":"+String((long long)gTlsEpochPost.load())+","+
+    "\"tls_time_sane_pre\":"+(gTlsTimeSanePre.load()?"true":"false")+","+
+    "\"tls_time_sane_post\":"+(gTlsTimeSanePost.load()?"true":"false")+","+
+    "\"tls_internal_pre_verify_free\":"+String(gTlsInternalPreVerifyFree.load())+","+
+    "\"tls_internal_pre_verify_largest\":"+String(gTlsInternalPreVerifyLargest.load())+","+
+    "\"tls_internal_post_verify_free\":"+String(gTlsInternalPostVerifyFree.load())+","+
+    "\"tls_internal_post_verify_largest\":"+String(gTlsInternalPostVerifyLargest.load())+","+
+    "\"internal_free_pre\":"+String(gTlsInternalFreePre.load())+",\"internal_largest_pre\":"+String(gTlsInternalLargestPre.load())+",\"internal_free_post\":"+String(gTlsInternalFreePost.load())+",\"internal_largest_post\":"+String(gTlsInternalLargestPost.load())+",\"heavy_owner\":\""+String(heavyOpOwnerName())+"\",\"heavy_age_ms\":"+String(heavyOpAgeMs())+",\"heavy_acquires\":"+String(heavyOpAcquireCount())+",\"heavy_release_mismatch\":"+String(heavyOpReleaseMismatchCount())+",\"message\":\""+m+"\"}";}

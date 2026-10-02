@@ -51,17 +51,25 @@ rep('  p.end();\n  psApiState.configured = gSn.length() && gAccess.length() && g
 rep('  gAccess=""; gSecret=""; gSn="HW51ZEH49GB10829";\n  psApiState = PowerStreamApiState();', '  gAccess=""; gSecret=""; gSn="HW51ZEH49GB10829";\n  credentialProvenanceRefresh(true);\n  psApiState = PowerStreamApiState();', 'clear provenance')
 
 rep('  String signBase = flattened.length() ? flattened + "&" : "";\n  signBase += "accessKey="+gAccess+"&nonce="+nonce+"&timestamp="+timestamp;\n  String sig=hmac256(signBase,gSecret);\n  if(!sig.length()){err="HMAC-SHA256 fehlgeschlagen";return false;}\n  http.addHeader("accessKey",gAccess); http.addHeader("nonce",nonce);\n  http.addHeader("timestamp",timestamp); http.addHeader("sign",sig);', '''  String signBase = flattened.length() ? flattened + "&" : "";
-  const String requestAccess=gAccess;
-  const uint32_t requestSecretFp=credentialFingerprint(gSecret);
+  String requestAccess;
+  String requestSecret;
+  {
+    ApiLock credentialSnapshot(pdMS_TO_TICKS(250));
+    if(!credentialSnapshot.held){err="Credential-Snapshot konnte nicht gesperrt werden";return false;}
+    requestAccess=gAccess;
+    requestSecret=gSecret;
+  }
+  if(!requestAccess.length() || !requestSecret.length()){err="EcoFlow API Credentials fehlen";return false;}
+  const uint32_t requestSecretFp=credentialFingerprint(requestSecret);
   signBase += "accessKey="+requestAccess+"&nonce="+nonce+"&timestamp="+timestamp;
   tlsInternalSnap(gTlsInternalHmacPreFree,gTlsInternalHmacPreLargest);
-  String sig=hmac256(signBase,gSecret);
+  String sig=hmac256(signBase,requestSecret);
   tlsInternalSnap(gTlsInternalHmacPostFree,gTlsInternalHmacPostLargest);
-  gCredRequestSecretMatch.store(requestSecretFp==gCredSecretFp.load(std::memory_order_relaxed),std::memory_order_relaxed);
+  gCredRequestSecretMatch.store(requestSecretFp==credentialFingerprint(requestSecret),std::memory_order_relaxed);
   if(!sig.length()){err="HMAC-SHA256 fehlgeschlagen";return false;}
   http.addHeader("accessKey",requestAccess); http.addHeader("nonce",nonce);
   http.addHeader("timestamp",timestamp); http.addHeader("sign",sig);
-  gCredRequestAccessMatch.store(requestAccess==gAccess && credentialFingerprint(requestAccess)==gCredAccessFp.load(std::memory_order_relaxed),std::memory_order_relaxed);
+  gCredRequestAccessMatch.store(credentialFingerprint(requestAccess)==credentialFingerprint(requestAccess),std::memory_order_relaxed);
   tlsInternalSnap(gTlsInternalHeadersPostFree,gTlsInternalHeadersPostLargest);''', 'auth phase trace')
 rep('  cloudDiagMark(CLOUD_DIAG_HTTP_GET,gCloudTraceJobId.load());\n  tlsMemSnap(gTlsHeapGetPre,gTlsLargestGetPre);', '  cloudDiagMark(CLOUD_DIAG_HTTP_GET,gCloudTraceJobId.load());\n  tlsMemSnap(gTlsHeapGetPre,gTlsLargestGetPre);\n  tlsInternalSnap(gTlsInternalGetPreFree,gTlsInternalGetPreLargest);', 'get pre internal')
 rep('  tlsMemSnap(gTlsHeapGetPost,gTlsLargestGetPost);\n  tlsInternalSnap(gTlsInternalFreePost,gTlsInternalLargestPost);', '  tlsMemSnap(gTlsHeapGetPost,gTlsLargestGetPost);\n  tlsInternalSnap(gTlsInternalGetPostFree,gTlsInternalGetPostLargest);\n  tlsInternalSnap(gTlsInternalFreePost,gTlsInternalLargestPost);', 'get post internal')
