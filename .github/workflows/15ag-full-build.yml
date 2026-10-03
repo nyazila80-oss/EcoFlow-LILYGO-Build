@@ -1,7 +1,7 @@
-name: 15AG TLS Peak Fix Full Build
+name: 15AI RAM Attribution Diagnostic Build
 on:
   push:
-    branches: ["solution/9.36.7.15AG-tls-peak-fix"]
+    branches: ["diag/15ai-ram-attribution"]
   workflow_dispatch:
 
 jobs:
@@ -15,7 +15,7 @@ jobs:
           python-version: '3.11'
       - name: Provenance
         run: |
-          echo "15AG_HEAD=$GITHUB_SHA"
+          echo "15AI_DIAG_HEAD=$GITHUB_SHA"
           git diff --quiet
           git diff --cached --quiet
           git log -1 --oneline
@@ -29,19 +29,13 @@ jobs:
         run: |
           set -euo pipefail
           for f in tools/host_sim_*.py tools/audit_*.py; do
-            echo "===== 15AG RUN $f ====="
+            echo "===== 15AI DIAG RUN $f ====="
             python "$f"
           done
-      # PlatformIO pre-scripts intentionally materialize the staged AB6->AB7->AB8
-      # ->15AE->15AF->15AG source for one invocation. Do not run `pio ... fullclean`
-      # as a separate invocation: that would mutate tracked source once and make the
-      # following build execute the transformation chain a second time.
       - name: Clean build directories without running pre-scripts
         run: |
           rm -rf .pio/build .pio/libdeps
           git reset --hard "$GITHUB_SHA"
-          # PlatformIO package/cache files are intentionally untracked. The pristine
-          # contract concerns tracked project source only.
           git diff --quiet
           git diff --cached --quiet
       - name: Build USB from pristine source
@@ -60,12 +54,10 @@ jobs:
         run: |
           git reset --hard "$GITHUB_SHA"
           pio run -e lilygo_tcan485_ota -t buildfs
-      - name: Materialize and verify generated 15AG solution
+      - name: Materialize and verify 15AI attribution diagnostic
         run: |
           set -euo pipefail
           git reset --hard "$GITHUB_SHA"
-          # A normal build invocation applies the pre-script chain exactly once to
-          # pristine tracked source; verification then inspects that generated state.
           pio run -e lilygo_tcan485_ota
           python - <<'PY'
           from pathlib import Path
@@ -73,24 +65,21 @@ jobs:
           p=Path('src/powerstream_api.cpp').read_text()
           b=Path('src/powerstream_ble_lab.cpp').read_text()
           code=re.sub(r'//[^\n]*|/\*.*?\*/','',p+'\n'+b,flags=re.S)
-          assert '9.36.7.15AG-TLS-PEAK-FIX' in p
           assert 'TLS_GET_MIN_LARGEST8 = 32768' in p
           assert 'powerStreamBleLabReclaimIdleClientForCloud(psBleReleased)' in p
           assert 'gCloudNotBeforeMs.store(millis()+750U' in p
           assert 'http_quiet_window_ms' in p
-          assert p.count('tls15agFragSnap(') == 3
-          assert 'frag_queue_largest' in p and 'frag_start_largest' in p
-          assert 'frag_psram_total' in p
-          ui=Path('data/bms_dashboard.html').read_text()
-          assert 'psCloudJobActive=true' in ui
-          assert 'setTimeout(r,14000)' in ui
-          assert 'psDiagPolling||psCloudJobActive' in ui
+          assert '15ai_pre_free' in p and '15ai_pre_largest' in p and '15ai_pre_blocks' in p
+          assert '15ai_post_free' in p and '15ai_post_largest' in p and '15ai_post_blocks' in p
+          assert '15ai_tick_free' in p and '15ai_tick_largest' in p and '15ai_tick_blocks' in p
+          assert '15ai_settle_free' in p and '15ai_settle_largest' in p and '15ai_settle_blocks' in p
+          assert 'vTaskDelay(pdMS_TO_TICKS(25))' in p
           assert b.count('bool powerStreamBleLabReclaimIdleClientForCloud(bool& released)') == 1
           assert 'NimBLEDevice::deleteClient(sClient)' in b
           assert 'setCACert(ECOFLOW_CA_BUNDLE)' in p
           assert not re.search(r'\bsetInsecure\s*\(',code)
           assert 'MBEDTLS_SSL_VERIFY_NONE' not in code
-          print('15AG SOLUTION TARGET PASS')
+          print('15AI RAM ATTRIBUTION TARGET PASS')
           PY
       - name: Collect original-name OTA artifacts
         run: |
@@ -102,6 +91,6 @@ jobs:
           printf '%s\n' "$GITHUB_SHA" > artifacts/COMMIT.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: 15AG-original-files-${{ github.sha }}
+          name: 15AI-ram-attribution-original-files-${{ github.sha }}
           path: artifacts/
           retention-days: 14
