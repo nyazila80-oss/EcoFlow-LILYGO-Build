@@ -54,18 +54,43 @@ elif p.count(marker)>1: raise RuntimeError('15AG TLS reclaim target duplicated')
 elif p.count(ctor)==1: p=p.replace(ctor,call+'\n'+ctor,1)
 else: raise RuntimeError('15AG WiFiClientSecure semantic anchor missing/non-unique: '+str(p.count(ctor)))
 
+# 15AG originally raises the admission threshold 10KiB -> 32KiB. 15AM later
+# performs the controlled 32KiB -> 24KiB A/B. PlatformIO pre-scripts execute
+# again for subsequent targets, so a canonical downstream 15AM/15AN source is
+# already a valid 15AG fixed point and must not be rewritten backwards.
 old_thr='static constexpr uint32_t TLS_GET_MIN_LARGEST8 = 10240;'
 new_thr='static constexpr uint32_t TLS_GET_MIN_LARGEST8 = 32768;'
+downstream_thr='static constexpr uint32_t TLS_GET_MIN_LARGEST8 = 24576;'
+lineage_versions={
+    '9.36.7.15AG-TLS-PEAK-FIX',
+    '9.36.7.15AH-EARLY-TLS-HANDSHAKE',
+    '9.36.7.15AI-PS-BLE-RECLAIM-DIAG',
+    '9.36.7.15AK-TLS-ALLOC-PEAK-DIAG',
+    '9.36.7.15AL-TLS-DYNAMIC-BUFFER-FIX',
+    '9.36.7.15AM-PREFLIGHT-AB-24K',
+    '9.36.7.15AN-TLS-INTERNAL8-FIX',
+}
+version_re=re.compile(r'tls15z_version\\\":\\\"([^\\\"]+)')
+versions=version_re.findall(p)
+if len(versions)!=1:
+    raise RuntimeError('15AG provenance missing/non-unique: '+repr(versions))
+current_version=versions[0]
+
 if p.count(new_thr)==1: pass
 elif p.count(new_thr)>1: raise RuntimeError('15AG TLS admission threshold duplicated')
 elif p.count(old_thr)==1: p=p.replace(old_thr,new_thr,1)
+elif p.count(downstream_thr)==1 and current_version in lineage_versions:
+    pass
 else: raise RuntimeError('15AG TLS admission threshold source missing/non-unique')
 
 old_ver='9.36.7.15AF-NO-AUX-RESERVATION'
 new_ver='9.36.7.15AG-TLS-PEAK-FIX'
-if new_ver not in p:
-    if old_ver not in p: raise RuntimeError('15AG provenance source missing')
+if current_version==old_ver:
     p=p.replace(old_ver,new_ver)
+elif current_version in lineage_versions:
+    pass
+else:
+    raise RuntimeError('15AG provenance source missing/unknown: '+current_version)
 
 # Per-job TLS diagnostic hygiene. A preflight-aborted job must never expose POST,
 # X509 or failed-allocation values inherited from an earlier job.
@@ -129,7 +154,6 @@ if 'static void resetTlsDiagnosticsForJob(uint32_t jobId)' not in p:
     if p.count(job_comment)!=1: raise RuntimeError('15AG diag reset insertion anchor missing/non-unique')
     p=p.replace(job_comment,reset_fn+'\n'+job_comment,1)
 
-# Reset after assigning the new job id, before publishing pending=true.
 queue_old='gJobId=n;gCloudTraceJobId=n;cloudDiagMark(CLOUD_DIAG_QUEUED,n);gJobPending=true;'
 queue_new='gJobId=n;gCloudTraceJobId=n;resetTlsDiagnosticsForJob(n);cloudDiagMark(CLOUD_DIAG_QUEUED,n);gJobPending=true;'
 if queue_new not in p:
@@ -149,14 +173,12 @@ if loop_new not in p:
     if p.count(loop_old)!=1: raise RuntimeError('15AG HTTP quiet loop anchor missing/non-unique')
     p=p.replace(loop_old,loop_new,1)
 
-# Mark a real TLS GET attempt only after the preflight gate has passed.
 get_anchor='if(method=="GET") {\n    gTlsFailedAllocCount.store(0,std::memory_order_relaxed);'
 get_mark='if(method=="GET") {\n    gTlsAttemptedThisJob.store(true,std::memory_order_relaxed);\n    gTlsFailedAllocCount.store(0,std::memory_order_relaxed);'
 if get_mark not in p:
     if p.count(get_anchor)!=1: raise RuntimeError('15AG TLS attempted anchor missing/non-unique')
     p=p.replace(get_anchor,get_mark,1)
 
-# Export ownership so stale-state regressions are visible in one JSON snapshot.
 json_anchor='return String("{\\\"ok\\\":true,\\\"job_id\\\":")+String(gJobId.load())+'
 json_new='return String("{\\\"ok\\\":true,\\\"job_id\\\":")+String(gJobId.load())+",\\\"tls_diag_job_id\\\":"+String(gTlsDiagJobId.load())+",\\\"tls_attempted_this_job\\\":"+(gTlsAttemptedThisJob.load()?"true":"false")+'
 if 'tls_attempted_this_job' not in p:
@@ -183,8 +205,13 @@ if 'NimBLEDevice::deinit' in fn: raise RuntimeError('15AG must not deinit shared
 if 'jkBleProxy' in fn: raise RuntimeError('15AG must not manipulate JK proxy/client')
 if b.count('bool powerStreamBleLabReclaimIdleClientForCloud(bool& released)')!=1: raise RuntimeError('15AG reclaim function cardinality != 1')
 if p.count(marker)!=1: raise RuntimeError('15AG reclaim call cardinality != 1')
-if p.count(new_thr)!=1: raise RuntimeError('15AG TLS admission threshold cardinality != 1')
-if new_ver not in p: raise RuntimeError('15AG provenance missing')
+# Accept only the native 15AG threshold or the known 15AM/15AN A/B descendant.
+if not ((p.count(new_thr)==1 and p.count(downstream_thr)==0) or
+        (p.count(new_thr)==0 and p.count(downstream_thr)==1 and version_re.findall(p)[0] in lineage_versions)):
+    raise RuntimeError('15AG TLS admission threshold invariant failed')
+post_versions=version_re.findall(p)
+if len(post_versions)!=1 or post_versions[0] not in lineage_versions:
+    raise RuntimeError('15AG provenance invariant after transform: '+repr(post_versions))
 if p.count('resetTlsDiagnosticsForJob(n)')!=1: raise RuntimeError('15AG per-job diag reset missing/duplicated')
 if p.count('gTlsAttemptedThisJob.store(true')!=1: raise RuntimeError('15AG TLS attempt marker missing/duplicated')
 if 'tls_diag_job_id' not in p or 'tls_attempted_this_job' not in p: raise RuntimeError('15AG JSON ownership fields missing')
@@ -194,4 +221,4 @@ if p.count('tls15agFragSnap(')!=3 or 'frag_psram_total' not in p: raise RuntimeE
 
 ble.write_text(b,encoding='utf-8')
 api.write_text(p,encoding='utf-8')
-print('[15AG] reclaim retained; TLS diagnostics reset and job-owned; CA verification retained')
+print('[15AG] reclaim retained; TLS diagnostics reset and job-owned; lineage=%s; CA verification retained' % post_versions[0])
