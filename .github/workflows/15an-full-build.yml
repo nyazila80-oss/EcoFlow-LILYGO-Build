@@ -15,33 +15,43 @@ jobs:
           python-version: '3.11'
       - name: Install PlatformIO
         run: pip install platformio
-      - name: 15AN source and security gates
+
+      - name: 15AN pre-build structural gates
         run: |
           python - <<'PY'
           from pathlib import Path
-          import re
+          import sys
           p=Path('platformio.ini').read_text()
           m=Path('src/main.cpp').read_text()
-          src=Path('src/powerstream_api.cpp').read_text()
-          a=Path('tools/platformio_tls15an_internal8_fix.py').read_text()
+          checks=[]
+          def check(name, ok, detail=''):
+              checks.append((name,bool(ok),detail))
+              print(f"[15AN-GATE] {name}: {'PASS' if ok else 'FAIL'} {detail}")
           order=['platformio_tls15ak_peak_attribution.py','platformio_tls15al_buffer_headroom_fix.py','platformio_tls15am_preflight_ab.py','platformio_tls15an_internal8_fix.py']
-          pos=[p.index(x) for x in order]
-          assert pos==sorted(pos), pos
-          assert 'TLS15AN_BLE_FAILSAFE_MS = 120000' in m
-          assert 'if (s15anBleReleased) jkBleProxyTick();' in m
-          assert 'if (s15anBleReleased) powerStreamBleLabTick();' in m
-          assert 'powerStreamApiLoopTick();' in m
-          assert m.index('powerStreamApiLoopTick();') < m.index('if (s15anBleReleased) jkBleProxyTick();')
-          # Security checks apply to executable firmware source, not diagnostic strings/comments.
-          code=re.sub(r'//[^\n]*|/\*.*?\*/','',src,flags=re.S)
-          assert not re.search(r'\bsetInsecure\s*\(',code)
-          assert 'MBEDTLS_SSL_VERIFY_NONE' not in code
-          assert 'client.setCACert(ECOFLOW_CA_BUNDLE);' in src
-          assert 'client.connect(API_HOST,443)' in src
-          assert '15AN security invariant: setInsecure present' in a
-          assert '15AN security invariant: VERIFY_NONE present' in a
-          print('15AN source/security lineage gates PASS')
+          try:
+              pos=[p.index(x) for x in order]
+              check('LINEAGE_ORDER',pos==sorted(pos),f'positions={pos}')
+          except ValueError as e:
+              check('LINEAGE_ORDER',False,f'missing={e}')
+          check('BLE_FAILSAFE','TLS15AN_BLE_FAILSAFE_MS = 120000' in m)
+          check('JK_BLE_GATED','if (s15anBleReleased) jkBleProxyTick();' in m)
+          check('PS_BLE_GATED','if (s15anBleReleased) powerStreamBleLabTick();' in m)
+          tls='powerStreamApiLoopTick();'
+          jk='if (s15anBleReleased) jkBleProxyTick();'
+          ps='if (s15anBleReleased) powerStreamBleLabTick();'
+          check('TLS_TICK_PRESENT',tls in m)
+          if all(x in m for x in (tls,jk,ps)):
+              check('TLS_BEFORE_BLE',m.index(tls)<m.index(jk) and m.index(tls)<m.index(ps),f'tls={m.index(tls)} jk={m.index(jk)} ps={m.index(ps)}')
+          else:
+              check('TLS_BEFORE_BLE',False,'one or more anchors missing')
+          check('CLOUD_DONE_GATE','powerStreamApiJobStatusJson()' in m and '\"done\":true' in m)
+          failed=[x for x in checks if not x[1]]
+          print(f'[15AN-GATE] summary: {len(checks)-len(failed)}/{len(checks)} PASS')
+          if failed:
+              print('[15AN-GATE] failed names: '+', '.join(x[0] for x in failed))
+              sys.exit(1)
           PY
+
       - name: Full clean USB
         run: pio run -e lilygo_tcan485 -t clean
       - name: Build USB
@@ -52,11 +62,36 @@ jobs:
         run: pio run -e lilygo_tcan485_ota
       - name: Build SPIFFS
         run: pio run -e lilygo_tcan485_ota -t buildfs
-      - name: Verify transformed 15AN source
+
+      - name: 15AN post-build security and transform audit
         run: |
-          grep -q "platformio_tls15an_internal8_fix.py" platformio.ini
-          grep -q "platformio_tls15al_buffer_headroom_fix.py" platformio.ini
-          grep -q "platformio_tls15am_preflight_ab.py" platformio.ini
+          python - <<'PY'
+          from pathlib import Path
+          import re,sys
+          src=Path('src/powerstream_api.cpp').read_text()
+          ini=Path('platformio.ini').read_text()
+          checks=[]
+          def check(name, ok, detail=''):
+              checks.append((name,bool(ok),detail))
+              print(f"[15AN-AUDIT] {name}: {'PASS' if ok else 'FAIL'} {detail}")
+          code=re.sub(r'//[^\n]*|/\*.*?\*/','',src,flags=re.S)
+          check('NO_SET_INSECURE',not bool(re.search(r'\bsetInsecure\s*\(',code)))
+          check('NO_VERIFY_NONE','MBEDTLS_SSL_VERIFY_NONE' not in code)
+          check('CA_CERT',src.count('client.setCACert(ECOFLOW_CA_BUNDLE);')==1,f"count={src.count('client.setCACert(ECOFLOW_CA_BUNDLE);')}")
+          check('VERIFIED_CONNECT',src.count('client.connect(API_HOST,443)')==1,f"count={src.count('client.connect(API_HOST,443)')}")
+          check('15AN_VERSION','9.36.7.15AN-TLS-INTERNAL8-FIX' in src)
+          check('24K_PREFLIGHT','TLS_GET_MIN_LARGEST8 = 24576' in src)
+          check('15AK_TELEMETRY','15ak_first_size' in src)
+          check('15AL_SCRIPT','platformio_tls15al_buffer_headroom_fix.py' in ini)
+          check('15AM_SCRIPT','platformio_tls15am_preflight_ab.py' in ini)
+          check('15AN_SCRIPT','platformio_tls15an_internal8_fix.py' in ini)
+          failed=[x for x in checks if not x[1]]
+          print(f'[15AN-AUDIT] summary: {len(checks)-len(failed)}/{len(checks)} PASS')
+          if failed:
+              print('[15AN-AUDIT] failed names: '+', '.join(x[0] for x in failed))
+              sys.exit(1)
+          PY
+
       - name: Pristine OTA rebuild
         run: |
           pio run -e lilygo_tcan485_ota -t clean
