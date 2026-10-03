@@ -4,8 +4,9 @@ from pathlib import Path
 import re
 
 # AB8 admission probe: observation only. Do not alter BLE/TLS behavior.
-# Repeated PlatformIO pre-script passes may see the downstream 15AF no-aux
-# state, where the reservation call is deliberately absent.
+# Repeated PlatformIO pre-script passes may see any later no-aux descendant,
+# where the reservation call is deliberately absent but admission telemetry is
+# retained. Accept that state only with exact canonical provenance + marker.
 proj=Path(env['PROJECT_DIR'])
 cpp=proj/'src'/'powerstream_api.cpp'
 p=cpp.read_text(encoding='utf-8')
@@ -41,17 +42,31 @@ new='''bool tls15zAttempted=false, tls15zReserved=false;
     if(!jkBleProxyAppConnected() && !jkBleProxyEventsPending()){ tls15zAttempted=true; tls15zReserved=jkBleProxyReserveAuxConnection(); }
     gTls15zAdmAttempted.store(tls15zAttempted?1:0);'''
 
-# 15AF downstream marker/provenance. 15AF intentionally keeps the admission
-# telemetry but replaces the reservation attempt with attempted=0.
-af_marker='gTls15zAdmAttempted.store(0);'
-af_version='9.36.7.15AF-NO-AUX-RESERVATION'
-downstream_af=(af_marker in p and af_version in p)
+# Canonical lineage value, not arbitrary version strings elsewhere in the TU.
+version_re=re.compile(r'tls15z_version\\\":\\\"([^\\\"]+)')
+versions=version_re.findall(p)
+if len(versions)!=1:
+    raise RuntimeError('AB8 admission provenance: tls15z_version missing/non-unique: '+repr(versions))
+version=versions[0]
+
+no_aux_marker='gTls15zAdmAttempted.store(0);'
+no_aux_versions={
+    '9.36.7.15AF-NO-AUX-RESERVATION',
+    '9.36.7.15AG-TLS-PEAK-FIX',
+    '9.36.7.15AH-EARLY-TLS-HANDSHAKE',
+    '9.36.7.15AI-PS-BLE-RECLAIM-DIAG',
+    '9.36.7.15AK-TLS-ALLOC-PEAK-DIAG',
+    '9.36.7.15AL-TLS-DYNAMIC-BUFFER-FIX',
+    '9.36.7.15AM-PREFLIGHT-AB-24K',
+    '9.36.7.15AN-TLS-INTERNAL8-FIX',
+}
+downstream_no_aux=(version in no_aux_versions and no_aux_marker in p)
 
 if old in p:
     if p.count(old)!=1: raise RuntimeError('AB8 admission call anchor non-unique')
     p=p.replace(old,new,1)
-elif downstream_af:
-    if p.count(af_marker)!=1: raise RuntimeError('AB8 admission/15AF marker non-unique')
+elif downstream_no_aux:
+    if p.count(no_aux_marker)!=1: raise RuntimeError('AB8 admission downstream no-aux marker non-unique')
 elif 'gTls15zAdmAttempted.store' not in p:
     raise RuntimeError('AB8 admission call anchor missing')
 
@@ -72,12 +87,15 @@ if 'tls15z_adm_initialized' not in p:
     p=p[:pos]+fields+p[pos:]
 
 code=re.sub(r'//[^\n]*|/\*.*?\*/','',p,flags=re.S)
-if downstream_af:
+if downstream_no_aux:
     if 'jkBleProxyReserveAuxConnection();' in code:
-        raise RuntimeError('AB8 admission/15AF invariant: executable reservation restored')
-    if af_version not in p:
-        raise RuntimeError('AB8 admission/15AF provenance missing')
+        raise RuntimeError('AB8 admission downstream invariant: executable reservation restored')
+    if p.count(no_aux_marker)!=1:
+        raise RuntimeError('AB8 admission downstream provenance marker missing/non-unique')
 else:
+    # Genuine AB8 state must still contain the reservation handshake.
+    if version not in ('9.36.7.15Z-MEMORY-RELIEF-AB8','9.36.7.15Z-MEMORY-RELIEF-AB7'):
+        raise RuntimeError('AB8 admission unexpected lineage without no-aux marker: '+version)
     if 'jkBleProxyReserveAuxConnection();' not in code:
         raise RuntimeError('AB8 handshake missing')
 if 'jkBleProxyReserveAuxConnectionOwner();' in code:
@@ -92,4 +110,4 @@ if re.search(r'\bsetInsecure\s*\(',code): raise RuntimeError('AB8 admission secu
 if 'MBEDTLS_SSL_VERIFY_NONE' in code: raise RuntimeError('AB8 admission security invariant: VERIFY_NONE')
 
 cpp.write_text(p,encoding='utf-8')
-print('[15Z-AB8-ADMISSION] read-only admission provenance verified (AB8 reservation or downstream 15AF no-aux)')
+print('[15Z-AB8-ADMISSION] read-only provenance verified; lineage=%s mode=%s' % (version,'downstream-no-aux' if downstream_no_aux else 'AB8-reservation'))
