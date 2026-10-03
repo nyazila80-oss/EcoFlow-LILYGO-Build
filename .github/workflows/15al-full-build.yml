@@ -60,12 +60,16 @@ jobs:
           src=Path('src/powerstream_api.cpp').read_text()
           assert 'pre:tools/platformio_tls15ak_peak_attribution.py' in ini
           assert 'pre:tools/platformio_tls15al_buffer_headroom_fix.py' in ini
-          assert 'client.setBufferSizes(8192, 4096);' in al
+          assert "('CONFIG_MBEDTLS_DYNAMIC_BUFFER', 1)" in al
+          assert "('CONFIG_MBEDTLS_DYNAMIC_FREE_PEER_CERT', 1)" in al
+          assert "('CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA', 1)" in al
+          assert "('CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT', 1)" in al
+          assert "if 'setBufferSizes(' in code: raise RuntimeError" in al
           assert 'client.setCACert(ECOFLOW_CA_BUNDLE);' in src
           code=re.sub(r'//[^\n]*|/\*.*?\*/','',src,flags=re.S)
           assert not re.search(r'\bsetInsecure\s*\(',code)
           assert 'MBEDTLS_SSL_VERIFY_NONE' not in code
-          assert '9.36.7.15AL-TLS-BUFFER-HEADROOM-FIX' in al
+          assert '9.36.7.15AL-TLS-DYNAMIC-BUFFER-FIX' in al
           print('15AL SOURCE/SECURITY GATES PASS')
           PY
       - name: Rebuild OTA pristine and collect original names
