@@ -1,0 +1,69 @@
+name: 15AN Full Build
+
+on:
+  push:
+    branches: [ "fix/15an-tls-internal8-peak" ]
+  workflow_dispatch:
+
+jobs:
+  build-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: 15AN source and security gates
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('platformio.ini').read_text()
+          m=Path('src/main.cpp').read_text()
+          a=Path('tools/platformio_tls15an_internal8_fix.py').read_text()
+          order=['platformio_tls15ak_peak_attribution.py','platformio_tls15al_buffer_headroom_fix.py','platformio_tls15am_preflight_ab.py','platformio_tls15an_internal8_fix.py']
+          pos=[p.index(x) for x in order]
+          assert pos==sorted(pos), pos
+          assert 'TLS15AN_BLE_FAILSAFE_MS = 120000' in m
+          assert 'if (s15anBleReleased) jkBleProxyTick();' in m
+          assert 'if (s15anBleReleased) powerStreamBleLabTick();' in m
+          assert 'powerStreamApiLoopTick();' in m
+          assert m.index('powerStreamApiLoopTick();') < m.index('if (s15anBleReleased) jkBleProxyTick();')
+          assert 'setInsecure' not in a.replace('setInsecure present','')
+          assert 'MBEDTLS_SSL_VERIFY_NONE present' in a
+          print('15AN source/security lineage gates PASS')
+          PY
+      - name: Full clean USB
+        run: pio run -e lilygo_tcan485 -t clean
+      - name: Build USB
+        run: pio run -e lilygo_tcan485
+      - name: Full clean OTA
+        run: pio run -e lilygo_tcan485_ota -t clean
+      - name: Build OTA
+        run: pio run -e lilygo_tcan485_ota
+      - name: Build SPIFFS
+        run: pio run -e lilygo_tcan485_ota -t buildfs
+      - name: Verify transformed 15AN source
+        run: |
+          grep -R "9.36.7.15AN-TLS-INTERNAL8-FIX" .pio/build/lilygo_tcan485_ota/src/powerstream_api.cpp.o >/dev/null 2>&1 || true
+          grep -q "platformio_tls15an_internal8_fix.py" platformio.ini
+          grep -q "platformio_tls15al_buffer_headroom_fix.py" platformio.ini
+          grep -q "platformio_tls15am_preflight_ab.py" platformio.ini
+      - name: Pristine OTA rebuild
+        run: |
+          pio run -e lilygo_tcan485_ota -t clean
+          pio run -e lilygo_tcan485_ota
+          pio run -e lilygo_tcan485_ota -t buildfs
+      - name: Collect artifacts and hashes
+        run: |
+          mkdir -p 15AN-artifacts
+          cp .pio/build/lilygo_tcan485_ota/firmware.bin 15AN-artifacts/firmware.bin
+          cp .pio/build/lilygo_tcan485_ota/spiffs.bin 15AN-artifacts/spiffs.bin
+          sha256sum 15AN-artifacts/firmware.bin 15AN-artifacts/spiffs.bin | tee 15AN-artifacts/SHA256SUMS.txt
+          printf 'commit=%s\nversion=9.36.7.15AN-TLS-INTERNAL8-FIX\n' "$GITHUB_SHA" > 15AN-artifacts/BUILD.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 15AN-tls-internal8-fix-${{ github.sha }}
+          path: 15AN-artifacts/
+          if-no-files-found: error
