@@ -5,16 +5,14 @@ import re
 
 root = Path(env['PROJECT_DIR'])
 p = root/'src'/'powerstream_api.cpp'
+main_p = root/'src'/'main.cpp'
 s = p.read_text(encoding='utf-8')
+m = main_p.read_text(encoding='utf-8')
 
-# 15AN targeted hardware fix, based on 15AM evidence:
-# TLS starts with ~45 KiB largest8 but INTERNAL8 falls to 844 B / 372 B largest,
-# then a 4-byte MALLOC_CAP_INTERNAL|8BIT allocation fails during verified X509.
-# Keep verified TLS and 15AM's diagnostic preflight. The fix is to quiesce the
-# JK/NimBLE heavy subsystem for the verified handshake, then restore it on all
-# exits. Existing 15AH/15AF lifecycle hooks are reused rather than adding a
-# second BLE owner.
-
+# 15AN hardware fix A/B based on 15AM evidence:
+# verified TLS reached an INTERNAL8 minimum of 844 B / 372 B largest and then a
+# 4-byte INTERNAL|8BIT allocation failed. Avoid unsafe live NimBLE deinit: the
+# first TLS job gets ownership before NimBLE is initialized, then BLE starts.
 old_ver='9.36.7.15AM-PREFLIGHT-AB-24K'
 new_ver='9.36.7.15AN-TLS-INTERNAL8-FIX'
 if new_ver not in s:
@@ -22,7 +20,6 @@ if new_ver not in s:
         raise RuntimeError('15AN provenance anchor missing/non-unique')
     s = s.replace(old_ver, new_ver, 1)
 
-# Security invariants: never trade verification for RAM.
 code = re.sub(r'//[^\n]*|/\*.*?\*/', '', s, flags=re.S)
 if re.search(r'\bsetInsecure\s*\(', code):
     raise RuntimeError('15AN security invariant: setInsecure present')
@@ -33,22 +30,30 @@ if s.count('client.setCACert(ECOFLOW_CA_BUNDLE);') != 1:
 if s.count('client.connect(API_HOST,443)') != 1:
     raise RuntimeError('15AN verified connect cardinality != 1')
 if 'static constexpr uint32_t TLS_GET_MIN_LARGEST8 = 24576;' not in s:
-    raise RuntimeError('15AN requires 15AM 24KiB diagnostic preflight')
+    raise RuntimeError('15AN requires 15AM 24KiB preflight')
 if '15ak_first_size' not in s:
     raise RuntimeError('15AN requires 15AK allocation telemetry')
 
-# Require the established early-handshake quiesce/restore lifecycle. 15AN does
-# not invent a new stop/start API; it makes the existing hardware fix mandatory
-# and fail-closed at build time. This prevents a silent build where dynamic
-# buffers are enabled but NimBLE remains resident through the TLS peak.
-required_any = [
-    ('jkBle', 'stop'),
-    ('ble', 'stop'),
-    ('NimBLEDevice', 'deinit'),
+# Fail closed if the TLS-first scheduling fix disappears or is weakened.
+anchors = [
+    'TLS15AN_BLE_FAILSAFE_MS = 120000',
+    'if (s15anBleReleased) jkBleProxyTick();',
+    'if (s15anBleReleased) powerStreamBleLabTick();',
+    'powerStreamApiJobStatusJson()',
+    '\"done\":true',
+    'cloudCompleted || failsafe',
 ]
-if not any(a in s and b in s for a,b in required_any):
-    raise RuntimeError('15AN: no established BLE/NimBLE quiesce path found after transforms')
+for a in anchors:
+    if a not in m:
+        raise RuntimeError('15AN TLS-first scheduling anchor missing: '+a)
 
-# Dynamic-buffer fix must still be supplied by 15AL build flags/script.
-print('[15AN] verified-TLS INTERNAL8 fix gate active: 24KiB preflight retained; BLE/NimBLE quiesce lifecycle required; CA/hostname verification retained')
+# Ordering invariant: the cloud/TLS scheduler must execute before the guarded
+# BLE ticks in the Arduino loop.
+pos_tls = m.find('powerStreamApiLoopTick();')
+pos_jk = m.find('if (s15anBleReleased) jkBleProxyTick();')
+pos_ps = m.find('if (s15anBleReleased) powerStreamBleLabTick();')
+if min(pos_tls,pos_jk,pos_ps) < 0 or not (pos_tls < pos_jk and pos_tls < pos_ps):
+    raise RuntimeError('15AN ordering invariant failed: TLS must precede BLE ticks')
+
+print('[15AN] TLS-first INTERNAL8 fix active: verified TLS retained; 24KiB preflight retained; NimBLE startup gated until cloud_done or 120s failsafe')
 p.write_text(s, encoding='utf-8')
