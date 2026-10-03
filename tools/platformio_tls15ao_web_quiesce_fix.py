@@ -74,8 +74,17 @@ if 'MBEDTLS_SSL_VERIFY_NONE' in code: raise RuntimeError('15AO safety invariant:
 if s.count('client.setCACert(ECOFLOW_CA_BUNDLE);')!=1: raise RuntimeError('15AO CA verification cardinality != 1')
 if s.count('client.connect(API_HOST,443)')!=1: raise RuntimeError('15AO verified connect cardinality != 1')
 if s.count(guard_line)!=1: raise RuntimeError('15AO guard cardinality != 1')
-if s.count('webCloudQuiesceBegin();')!=1 or s.count('webCloudQuiesceEnd();')!=1:
-    raise RuntimeError('15AO WebSocket quiesce lifecycle cardinality invalid')
+# web.h legitimately declares these APIs too; audit the concrete RAII guard
+# implementation rather than global token cardinality across included source.
+if s.count('struct Tls15aoWebGuard {')!=1:
+    raise RuntimeError('15AO guard type cardinality != 1')
+guard_start=s.find('struct Tls15aoWebGuard {')
+guard_end=s.find('\n};',guard_start)
+if guard_start<0 or guard_end<0:
+    raise RuntimeError('15AO guard implementation boundary missing')
+guard_impl=s[guard_start:guard_end+3]
+if guard_impl.count('webCloudQuiesceBegin();')!=1 or guard_impl.count('webCloudQuiesceEnd();')!=1:
+    raise RuntimeError('15AO WebSocket quiesce lifecycle invalid inside RAII guard')
 if 'static constexpr uint32_t TLS_GET_MIN_LARGEST8 = 24576;' not in s:
     raise RuntimeError('15AO requires canonical 24KiB preflight')
 pos_pre=s.find(entry_line); pos_guard=s.find(guard_line); pos_client=s.find('  WiFiClientSecure client;')
