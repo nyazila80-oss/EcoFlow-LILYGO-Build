@@ -1,0 +1,108 @@
+name: 15AQ Framework mbedTLS Proof
+
+on:
+  push:
+    branches: [ "fix/15aq-framework-mbedtls-proof" ]
+  workflow_dispatch:
+
+jobs:
+  framework-proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Resolve framework packages
+        run: pio pkg install -e lilygo_tcan485
+
+      - name: 15AQ effective mbedTLS framework audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json, re, subprocess
+
+          root=Path.home()/'.platformio'
+          macros=[
+            'CONFIG_MBEDTLS_DYNAMIC_BUFFER',
+            'CONFIG_MBEDTLS_DYNAMIC_FREE_PEER_CERT',
+            'CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA',
+            'CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT',
+          ]
+
+          print('[15AQ] PlatformIO package inventory')
+          subprocess.run(['pio','pkg','list','-e','lilygo_tcan485'],check=True)
+
+          # Search every framework/package text header, not merely conventional config names.
+          hits={m:[] for m in macros}
+          searched=0
+          exts={'.h','.hpp','.c','.cpp','.txt','.json'}
+          for p in root.rglob('*'):
+            if not p.is_file() or p.suffix.lower() not in exts: continue
+            s=str(p).lower()
+            if 'framework-arduinoespressif32' not in s and 'framework-espidf' not in s and 'mbedtls' not in s: continue
+            searched+=1
+            try: txt=p.read_text(errors='ignore')
+            except Exception: continue
+            for m in macros:
+              if m in txt:
+                for n,line in enumerate(txt.splitlines(),1):
+                  if m in line: hits[m].append((str(p),n,line.strip()))
+
+          print(f'[15AQ] searched_text_files={searched}')
+          for m in macros:
+            print(f'[15AQ] {m} hits={len(hits[m])}')
+            for row in hits[m][:40]: print('   ',row)
+
+          # Identify the actual precompiled TLS archives delivered by the selected framework.
+          archives=[]
+          for p in root.rglob('*.a'):
+            low=str(p).lower()
+            if any(x in low for x in ('mbedtls','mbedcrypto','mbedx509')):
+              archives.append(p)
+          print(f'[15AQ] tls_archives={len(archives)}')
+          for p in archives: print('   '+str(p))
+
+          # Detect ESP-IDF sdkconfig/config artifacts shipped with the framework.
+          cfg=[]
+          for pat in ('sdkconfig*','*mbedtls*config*.h','sdkconfig.h'):
+            cfg.extend(root.rglob(pat))
+          uniq=[]; seen=set()
+          for p in cfg:
+            if p.is_file() and str(p.resolve()) not in seen:
+              seen.add(str(p.resolve())); uniq.append(p)
+          print(f'[15AQ] config_artifacts={len(uniq)}')
+          for p in uniq[:120]: print('   '+str(p))
+
+          declared=sum(bool(v) for v in hits.values())
+          if declared==0:
+            print('[15AQ-VERDICT] PRECOMPILED_FRAMEWORK_HAS_NO_TEXTUAL_EVIDENCE_FOR_DYNAMIC_MBEDTLS_OPTIONS')
+            print('[15AQ-NEXT] Do not claim project build_flags can retrofit these options into precompiled TLS archives.')
+            print('[15AQ-NEXT] A true experiment requires rebuilding the ESP-IDF/Arduino framework TLS libraries with an sdkconfig that enables supported dynamic-buffer options, or moving to a framework version that already exposes them.')
+          else:
+            print(f'[15AQ-VERDICT] FRAMEWORK_TEXT_EVIDENCE_FOUND_FOR_{declared}_OF_{len(macros)}_OPTIONS')
+            print('[15AQ-NEXT] Inspect exact values and compilation provenance before changing firmware.')
+          PY
+
+      - name: Baseline build remains reproducible
+        run: |
+          pio run -e lilygo_tcan485 -t clean
+          pio run -e lilygo_tcan485
+
+      - name: Upload proof report inputs
+        if: always()
+        run: |
+          mkdir -p 15AQ-proof
+          pio pkg list -e lilygo_tcan485 > 15AQ-proof/package-list.txt || true
+          cp platformio.ini 15AQ-proof/platformio.ini
+          printf 'commit=%s\nbranch=fix/15aq-framework-mbedtls-proof\n' "$GITHUB_SHA" > 15AQ-proof/BUILD.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 15AQ-framework-mbedtls-proof-${{ github.sha }}
+          path: 15AQ-proof/
