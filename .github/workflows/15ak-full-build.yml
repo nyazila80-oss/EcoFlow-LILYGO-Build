@@ -73,9 +73,14 @@ jobs:
           import re
           ini=Path('platformio.ini').read_text()
           d=Path('tools/platformio_tls15ak_peak_attribution.py').read_text()
+          ag=Path('tools/platformio_tls15ag_peak_fix.py').read_text()
           src=Path('src/powerstream_api.cpp').read_text()
+          assert 'pre:tools/platformio_tls15ag_peak_fix.py' in ini
           assert 'pre:tools/platformio_tls15ak_peak_attribution.py' in ini
-          assert 'TLS_GET_MIN_LARGEST8 = 32768' in src
+          # 32768 is deliberately a generated-source invariant introduced by 15AG,
+          # not a literal in the pristine canonical powerstream_api.cpp.
+          assert "new_thr='static constexpr uint32_t TLS_GET_MIN_LARGEST8 = 32768;'" in ag
+          assert "if p.count(new_thr)!=1" in ag
           assert 'client.setCACert(ECOFLOW_CA_BUNDLE);' in src
           code=re.sub(r'//[^\n]*|/\*.*?\*/','',src,flags=re.S)
           assert not re.search(r'\bsetInsecure\s*\(',code)
@@ -91,8 +96,6 @@ jobs:
           git clean -fd src
           rm -rf .pio/build/lilygo_tcan485_ota
           pio run -e lilygo_tcan485_ota
-          # buildfs does not need to re-run source-mutating pre-scripts after firmware;
-          # restore first so the second invocation starts from the canonical source.
           git reset --hard "$GITHUB_SHA"
           git clean -fd src
           pio run -e lilygo_tcan485_ota -t buildfs
