@@ -1,0 +1,79 @@
+name: 15AR Loop Stack Headroom
+
+on:
+  push:
+    branches: [ "fix/15ar-loop-stack-headroom" ]
+  workflow_dispatch:
+
+jobs:
+  build-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: 15AR structural and safety gates
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          m=Path('src/main.cpp').read_text()
+          p=Path('platformio.ini').read_text()
+          checks={
+            'STACK_7168': 'TLS15AR_LOOP_STACK_BYTES = 7168' in m,
+            'STACK_OVERRIDE': 'SET_LOOP_TASK_STACK_SIZE(TLS15AR_LOOP_STACK_BYTES)' in m,
+            'MARGIN_2048': 'TLS15AR_MIN_STACK_MARGIN_BYTES = 2048' in m,
+            'SCRIPT_LAST': p.index('platformio_tls15ao_web_quiesce_fix.py') < p.index('platformio_tls15ar_loop_stack_headroom.py'),
+            'BLE_FAILSAFE': 'TLS15AN_BLE_FAILSAFE_MS = 120000' in m,
+          }
+          for name,ok in checks.items(): print(f'[15AR-GATE] {name}: {"PASS" if ok else "FAIL"}')
+          if not all(checks.values()): raise SystemExit(1)
+          PY
+
+      - name: Full clean USB build
+        run: |
+          pio run -e lilygo_tcan485 -t clean
+          pio run -e lilygo_tcan485
+      - name: Full clean OTA and SPIFFS build
+        run: |
+          pio run -e lilygo_tcan485_ota -t clean
+          pio run -e lilygo_tcan485_ota
+          pio run -e lilygo_tcan485_ota -t buildfs
+
+      - name: Post-build security and telemetry audit
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('src/powerstream_api.cpp').read_text()
+          code=re.sub(r'//[^\n]*|/\*.*?\*/','',s,flags=re.S)
+          checks={
+            'NO_SET_INSECURE': not re.search(r'\bsetInsecure\s*\(',code),
+            'NO_VERIFY_NONE': 'MBEDTLS_SSL_VERIFY_NONE' not in code,
+            'CA_CERT': s.count('client.setCACert(ECOFLOW_CA_BUNDLE);') == 1,
+            'VERIFIED_CONNECT': s.count('client.connect(API_HOST,443)') == 1,
+            'PREFLIGHT_24K': 'TLS_GET_MIN_LARGEST8 = 24576' in s,
+            '15AR_VERSION': s.count('9.36.7.15AR-LOOP-STACK-HEADROOM') == 1,
+            '15AR_STACK_FIELD': s.count('15ar_loop_stack_bytes') == 1,
+            '15AR_MARGIN_FIELD': s.count('15ar_min_stack_margin_bytes') == 1,
+          }
+          for name,ok in checks.items(): print(f'[15AR-AUDIT] {name}: {"PASS" if ok else "FAIL"}')
+          if not all(checks.values()): raise SystemExit(1)
+          PY
+
+      - name: Collect artifacts and hashes
+        run: |
+          mkdir -p 15AR-artifacts
+          cp .pio/build/lilygo_tcan485_ota/firmware.bin 15AR-artifacts/firmware.bin
+          cp .pio/build/lilygo_tcan485_ota/spiffs.bin 15AR-artifacts/spiffs.bin
+          sha256sum 15AR-artifacts/firmware.bin 15AR-artifacts/spiffs.bin | tee 15AR-artifacts/SHA256SUMS.txt
+          printf 'commit=%s\nversion=9.36.7.15AR-LOOP-STACK-HEADROOM\n' "$GITHUB_SHA" > 15AR-artifacts/BUILD.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 15AR-loop-stack-headroom-${{ github.sha }}
+          path: 15AR-artifacts/
+          if-no-files-found: error
