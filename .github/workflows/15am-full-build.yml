@@ -1,0 +1,100 @@
+name: 15AM TLS Preflight A-B 24K Full Build
+on:
+  push:
+    branches: ["diag/15am-preflight-ab-24k"]
+  workflow_dispatch:
+
+jobs:
+  full-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Provenance
+        run: |
+          echo "15AM_HEAD=$GITHUB_SHA"
+          git diff --quiet
+          git diff --cached --quiet
+          git log -1 --oneline
+      - name: Python syntax gate
+        run: python -m compileall -q tools
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Bootstrap pinned packages
+        run: pio pkg install -e lilygo_tcan485
+      - name: Existing audits and host simulations
+        run: |
+          set -euo pipefail
+          for f in tools/host_sim_*.py tools/audit_*.py; do echo "===== 15AM RUN $f ====="; python "$f"; done
+      - name: Full clean
+        run: |
+          rm -rf .pio/build .pio/libdeps
+          git reset --hard "$GITHUB_SHA"
+          git clean -fd src
+      - name: Build USB from pristine source
+        run: |
+          git reset --hard "$GITHUB_SHA"; git clean -fd src
+          rm -rf .pio/build/lilygo_tcan485
+          pio run -e lilygo_tcan485
+      - name: Restore and build OTA from pristine source
+        run: |
+          git reset --hard "$GITHUB_SHA"; git clean -fd src
+          rm -rf .pio/build/lilygo_tcan485_ota
+          pio run -e lilygo_tcan485_ota
+      - name: Restore and build SPIFFS
+        run: |
+          git reset --hard "$GITHUB_SHA"; git clean -fd src
+          pio run -e lilygo_tcan485_ota -t buildfs
+      - name: 15AM source security and lineage gates
+        run: |
+          set -euo pipefail
+          git reset --hard "$GITHUB_SHA"; git clean -fd src
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          ini=Path('platformio.ini').read_text()
+          al=Path('tools/platformio_tls15al_buffer_headroom_fix.py').read_text()
+          am=Path('tools/platformio_tls15am_preflight_ab.py').read_text()
+          src=Path('src/powerstream_api.cpp').read_text()
+          order=[
+            'pre:tools/platformio_tls15ak_peak_attribution.py',
+            'pre:tools/platformio_tls15al_buffer_headroom_fix.py',
+            'pre:tools/platformio_tls15am_preflight_ab.py']
+          pos=[ini.index(x) for x in order]
+          assert pos == sorted(pos)
+          assert "old_thr='static constexpr uint32_t TLS_GET_MIN_LARGEST8 = 32768;'" in am
+          assert "new_thr='static constexpr uint32_t TLS_GET_MIN_LARGEST8 = 24576;'" in am
+          assert "new_ver='9.36.7.15AM-PREFLIGHT-AB-24K'" in am
+          assert "('CONFIG_MBEDTLS_DYNAMIC_BUFFER', 1)" in al
+          assert "('CONFIG_MBEDTLS_DYNAMIC_FREE_PEER_CERT', 1)" in al
+          assert "('CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA', 1)" in al
+          assert "('CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT', 1)" in al
+          assert "if '15ak_first_size' not in s" in am
+          assert "if 'tls_attempted_this_job' not in s" in am
+          assert 'client.setCACert(ECOFLOW_CA_BUNDLE);' in src
+          code=re.sub(r'//[^\n]*|/\*.*?\*/','',src,flags=re.S)
+          assert not re.search(r'\bsetInsecure\s*\(',code)
+          assert 'MBEDTLS_SSL_VERIFY_NONE' not in code
+          print('15AM SOURCE/SECURITY/LINEAGE GATES PASS')
+          PY
+      - name: Rebuild OTA pristine and collect original names
+        run: |
+          set -euo pipefail
+          git reset --hard "$GITHUB_SHA"; git clean -fd src
+          rm -rf .pio/build/lilygo_tcan485_ota
+          pio run -e lilygo_tcan485_ota
+          git reset --hard "$GITHUB_SHA"; git clean -fd src
+          pio run -e lilygo_tcan485_ota -t buildfs
+          mkdir -p artifacts
+          cp .pio/build/lilygo_tcan485_ota/firmware.bin artifacts/firmware.bin
+          cp .pio/build/lilygo_tcan485_ota/spiffs.bin artifacts/spiffs.bin
+          sha256sum artifacts/firmware.bin artifacts/spiffs.bin | tee artifacts/SHA256SUMS.txt
+          printf '%s\n' "$GITHUB_SHA" > artifacts/COMMIT.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 15AM-preflight-ab-original-files-${{ github.sha }}
+          path: artifacts/
+          retention-days: 14
