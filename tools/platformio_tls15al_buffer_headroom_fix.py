@@ -9,18 +9,35 @@ s=p.read_text(encoding='utf-8')
 
 # 15AK proved the verified TLS handshake transiently exhausts INTERNAL|8BIT.
 # ESP32 WiFiClientSecure in this pinned Arduino/IDF line has no setBufferSizes().
-# 15AL therefore uses Espressif's compile-time mbedTLS dynamic TX/RX buffer
-# facility. Do not alter CA/hostname verification or the 32 KiB admission gate.
-# The flags themselves are injected via env.Append below; this source transform
-# only exports provenance and enforces security/lifecycle invariants.
+# 15AL therefore enables Espressif's compile-time mbedTLS dynamic-buffer path.
+# The extra script is executed for every PlatformIO invocation, so provenance
+# transformation must be idempotent for later 15AM/15AN lineages.
 old='9.36.7.15AG-TLS-PEAK-FIX'
-new='9.36.7.15AL-TLS-DYNAMIC-BUFFER-FIX'
-if new not in s:
-    if old not in s: raise RuntimeError('15AL provenance anchor missing')
-    s=s.replace(old,new)
+self_ver='9.36.7.15AL-TLS-DYNAMIC-BUFFER-FIX'
+downstream=(
+    '9.36.7.15AM-PREFLIGHT-AB-24K',
+    '9.36.7.15AN-TLS-INTERNAL8-FIX',
+)
 
-# Configure the IDF mbedTLS path supported by this ESP32 framework.
-# Dynamic buffers are allocated only when needed and released afterwards.
+versions=re.findall(r'tls15z_version\\\":\\\"([^\\\"]+)',s)
+if len(versions)!=1:
+    raise RuntimeError('15AL provenance missing/non-unique: '+repr(versions))
+version=versions[0]
+
+if version==old:
+    if s.count(old)!=1:
+        raise RuntimeError('15AL transform provenance cardinality != 1')
+    s=s.replace(old,self_ver,1)
+    version=self_ver
+elif version==self_ver or version in downstream:
+    # Fixed point: never rewrite a completed downstream lineage backwards.
+    pass
+else:
+    raise RuntimeError('15AL unsupported provenance: '+version)
+
+# Configure the IDF mbedTLS path on every build invocation. These flags are
+# build-environment state, not persisted source state, so idempotent source
+# provenance must not suppress them.
 env.Append(CPPDEFINES=[
     ('CONFIG_MBEDTLS_DYNAMIC_BUFFER', 1),
     ('CONFIG_MBEDTLS_DYNAMIC_FREE_PEER_CERT', 1),
@@ -35,5 +52,14 @@ if 'setBufferSizes(' in code: raise RuntimeError('15AL incompatible setBufferSiz
 if s.count('client.setCACert(ECOFLOW_CA_BUNDLE);')!=1: raise RuntimeError('15AL CA cardinality != 1')
 if s.count('client.connect(API_HOST,443)')!=1: raise RuntimeError('15AL early verified handshake cardinality != 1')
 
+thr32='static constexpr uint32_t TLS_GET_MIN_LARGEST8 = 32768;'
+thr24='static constexpr uint32_t TLS_GET_MIN_LARGEST8 = 24576;'
+if version in downstream:
+    if s.count(thr24)!=1 or s.count(thr32)!=0:
+        raise RuntimeError('15AL downstream threshold invariant failed: expected canonical 24KiB')
+else:
+    if s.count(thr32)!=1:
+        raise RuntimeError('15AL pre-15AM threshold invariant failed: expected canonical 32KiB')
+
 p.write_text(s,encoding='utf-8')
-print('[15AL] ESP32 mbedTLS dynamic TX/RX buffers enabled; verified TLS retained')
+print('[15AL] fixed point PASS; lineage=%s; dynamic TX/RX buffer defines active; verified TLS retained' % version)
