@@ -25,10 +25,15 @@
 #define SERIALDEBUG 0
 #define CANDUMP 1
 #define VERBOSE_BMS_PRINTS 0
-
-// AUDIT19.15.19 STACK-WATERMARK-DIAG: keep the bounded RS485 + independent heartbeat
-// diagnostics from 19.15.3, but exercise the complete BLE proxy path as well.
 #define DIAG_BLE_DISABLED 0
+
+// 15AN hardware fix A/B: preserve the existing one-shot NimBLE lifecycle and
+// keep BLE uninitialized until the first cloud/TLS job has actually completed.
+// This gives verified TLS/X509 first ownership of INTERNAL8 without risky live
+// NimBLE deinit/reinit. A bounded failsafe releases BLE if no cloud job is run.
+static constexpr uint32_t TLS15AN_BLE_FAILSAFE_MS = 120000;
+static bool s15anBleReleased = false;
+static uint32_t s15anBootMs = 0;
 
 AsyncWebServer server(80);
 std::atomic<bool> canHealth{false};
@@ -71,10 +76,11 @@ static void diagHeartbeatTask(void*) {
 
 void setup() {
   Serial.begin(115200);
+  s15anBootMs = millis();
   bleBootDiagBegin();
   cloudDiagBegin();
   delay(500);
-  Serial.println("[DIAG] AUDIT20.4.4 RX-DECOUPLED + LOW-SOC-GUARD: BLE enabled");
+  Serial.println("[DIAG] 15AN TLS-FIRST INTERNAL8 FIX A/B: BLE startup gated until first cloud job completes");
   heapCheckpoint("boot");
 
   pinMode(ME2107_EN, OUTPUT); digitalWrite(ME2107_EN, HIGH);
@@ -83,12 +89,10 @@ void setup() {
   mqttInit(deviceId());
   loadCoreConfig();
   powerStreamBleLabInit();
-  Serial.println("[COEX-A/B] 9.36.7.11 security-hardened staged JK/PowerStream BLE diagnostics active; no legacy runtime suppression");
   powerStreamApiLoad();
   bmsInit();
   heapCheckpoint("config+bms");
 
-  // FINAL-HARDENED: one authoritative SPIFFS mount/status initialization.
   filesystemInitStatus();
   Serial.printf("[FS] boot status=%s total=%u used=%u\n", filesystemStatusString(),
                 filesystemReady() ? (unsigned)SPIFFS.totalBytes() : 0u,
@@ -101,9 +105,7 @@ void setup() {
   else { startSTA(0); Serial.println("[WiFi] STA association started asynchronously"); }
   heapCheckpoint("WiFi kicked");
 
-  // FINAL-AUDIT: initialize TX serialization/XOR state before any CAN task can decode and reply.
   ecoflowMessagesInit();
-
   canInitDriver();
   if (twai_ok) canStartTasks();
   else Serial.println("TWAI not ready; CAN tasks not started. Visit /can_try_init to retry later.");
@@ -115,8 +117,7 @@ void setup() {
   server.begin();
   Serial.println("[WEB] HTTP server started on port 80");
   heapCheckpoint("HTTP started");
-
-  Serial.println("[DIAG] dedicated heartbeat task disabled in TLS RAM reclaim build");
+  Serial.println("[15AN] BLE/NimBLE startup held for TLS-first A/B; failsafe=120000ms");
 }
 
 void loop() {
@@ -124,10 +125,25 @@ void loop() {
   ensureWiFi();
   cloudDiagLoopTick();
   powerStreamApiLoopTick();
+
+  // Release BLE only after the queued cloud operation has finished. This means
+  // the complete verified TLS handshake and cleanup ran while NimBLE was still
+  // uninitialized. If the operator never runs a cloud job, the failsafe keeps
+  // normal JK functionality from being blocked indefinitely.
+  if (!s15anBleReleased) {
+    const String js = powerStreamApiJobStatusJson();
+    const bool cloudCompleted = js.indexOf("\"done\":true") >= 0;
+    const bool failsafe = (uint32_t)(millis() - s15anBootMs) >= TLS15AN_BLE_FAILSAFE_MS;
+    if (cloudCompleted || failsafe) {
+      s15anBleReleased = true;
+      Serial.printf("[15AN] BLE startup released reason=%s free=%u largest8=%u\n",
+                    cloudCompleted ? "cloud_done" : "failsafe",
+                    (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+                    (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    }
+  }
+
   if (wifiConsumeWebRebindRequest()) {
-    // 9.36.7.6: intentionally do NOT end()/begin() the AsyncServer on STA/IP changes.
-    // The listener is wildcard-bound; LwIP invalidates stale TCP sockets on disconnect.
-    // Rebinding can itself race active AsyncTCP clients and is not needed for DHCP recovery.
     Serial.println("[WEB] legacy rebind request consumed; listener retained");
   }
   ntpTick();
@@ -136,12 +152,11 @@ void loop() {
   bmsLoopTick();
   lowSocGuardTick();
 #if !DIAG_BLE_DISABLED
-  jkBleProxyTick();
+  if (s15anBleReleased) jkBleProxyTick();
 #endif
-  powerStreamBleLabTick();
+  if (s15anBleReleased) powerStreamBleLabTick();
   webTick();
   canTxSequencerTick();
   ecoflowCbRecorderTick();
-  // Explicit scheduler handoff; prevents a hot main loop from starving lower-priority work.
   delay(1);
 }
