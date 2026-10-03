@@ -44,7 +44,9 @@ jobs:
               check('TLS_BEFORE_BLE',m.index(tls)<m.index(jk) and m.index(tls)<m.index(ps),f'tls={m.index(tls)} jk={m.index(jk)} ps={m.index(ps)}')
           else:
               check('TLS_BEFORE_BLE',False,'one or more anchors missing')
-          check('CLOUD_DONE_GATE','powerStreamApiJobStatusJson()' in m and '\"done\":true' in m)
+          check('CLOUD_STATUS_JSON','powerStreamApiJobStatusJson()' in m)
+          check('CLOUD_DONE_PARSE','js.indexOf("\\\"done\\\":true") >= 0' in m)
+          check('CLOUD_RELEASE','cloudCompleted || failsafe' in m)
           failed=[x for x in checks if not x[1]]
           print(f'[15AN-GATE] summary: {len(checks)-len(failed)}/{len(checks)} PASS')
           if failed:
