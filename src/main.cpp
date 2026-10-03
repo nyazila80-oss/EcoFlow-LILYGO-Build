@@ -20,6 +20,18 @@
 #include "powerstream_ble_lab.h"
 #include "ble_boot_diag.h"
 #include "cloud_boot_diag.h"
+
+// 15AR controlled A/B: the stock Arduino loop task reserves 8192 bytes. The
+// 15AN/15AO hardware run still had 3776 bytes unused when mbedTLS exhausted
+// INTERNAL8 and failed a 4-byte allocation. Reclaim only 1024 bytes; hardware
+// acceptance still requires at least 2048 bytes post-job stack margin.
+static constexpr size_t TLS15AR_LOOP_STACK_BYTES = 7168;
+static constexpr uint32_t TLS15AR_MIN_STACK_MARGIN_BYTES = 2048;
+SET_LOOP_TASK_STACK_SIZE(TLS15AR_LOOP_STACK_BYTES);91
+
+    Serial.printf("[15AR] loop stack A/B active: bytes=%u required_post_job_margin=%u\n",
+                (unsigned)TLS15AR_LOOP_STACK_BYTES,
+                (unsigned)TLS15AR_MIN_STACK_MARGIN_BYTES);
 #include "diag_heartbeat.h"
 
 #define SERIALDEBUG 0
