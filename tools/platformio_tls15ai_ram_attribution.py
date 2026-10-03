@@ -7,6 +7,12 @@ root=Path(env['PROJECT_DIR'])
 p=root/'src'/'powerstream_api.cpp'
 s=p.read_text(encoding='utf-8')
 
+version_re=re.compile(r'tls15z_version\\\":\\\"([^\\\"]+)')
+versions=version_re.findall(s)
+if len(versions)!=1:
+    raise RuntimeError('15AI provenance missing/non-unique: '+repr(versions))
+version=versions[0]
+
 # Diagnostic-only RAM attribution. No TLS threshold, CA, JK/NimBLE host or WebUI
 # behaviour is changed. Measure INTERNAL|8BIT fragmentation around the existing
 # idle PowerStream-client reclaim and two scheduler settling points.
@@ -43,8 +49,6 @@ new='''  tls15aiSnap(g15aiPreFree,g15aiPreLargest,g15aiPreBlocks);
   tls15aiSnap(g15aiPostFree,g15aiPostLargest,g15aiPostBlocks);
   if(psBleReleased) vTaskDelay(pdMS_TO_TICKS(1));
   tls15aiSnap(g15aiTickFree,g15aiTickLargest,g15aiTickBlocks);
-  // Diagnostic settle only: test whether deferred scheduler/NimBLE cleanup changes
-  // fragmentation. This is deliberately not claimed as a production fix.
   if(psBleReleased) vTaskDelay(pdMS_TO_TICKS(25));
   tls15aiSnap(g15aiSettleFree,g15aiSettleLargest,g15aiSettleBlocks);
   if(!heap_caps_check_integrity_all(false)){'''
@@ -52,7 +56,6 @@ if 'tls15aiSnap(g15aiPreFree' not in s:
     if s.count(old)!=1: raise RuntimeError('15AI reclaim attribution anchor missing/non-unique')
     s=s.replace(old,new,1)
 
-# Reset per job so an aborted/busy job cannot inherit attribution values.
 reset_anchor='''  gTlsDiagJobId.store(jobId,std::memory_order_relaxed);
   gTlsAttemptedThisJob.store(false,std::memory_order_relaxed);'''
 reset_new=reset_anchor+'''\n  g15aiPreFree=0; g15aiPreLargest=0; g15aiPreBlocks=0;
@@ -63,22 +66,32 @@ if 'g15aiPreFree=0' not in s:
     if s.count(reset_anchor)!=1: raise RuntimeError('15AI reset anchor missing/non-unique')
     s=s.replace(reset_anchor,reset_new,1)
 
-# Export compact per-stage values in the existing status JSON.
 json_anchor=''',\\"pending\\":"+(pending?"true":"false")+'''
 json_new=''',\\"15ai_pre_free\\":"+String(g15aiPreFree.load())+",\\"15ai_pre_largest\\":"+String(g15aiPreLargest.load())+",\\"15ai_pre_blocks\\":"+String(g15aiPreBlocks.load())+",\\"15ai_post_free\\":"+String(g15aiPostFree.load())+",\\"15ai_post_largest\\":"+String(g15aiPostLargest.load())+",\\"15ai_post_blocks\\":"+String(g15aiPostBlocks.load())+",\\"15ai_tick_free\\":"+String(g15aiTickFree.load())+",\\"15ai_tick_largest\\":"+String(g15aiTickLargest.load())+",\\"15ai_tick_blocks\\":"+String(g15aiTickBlocks.load())+",\\"15ai_settle_free\\":"+String(g15aiSettleFree.load())+",\\"15ai_settle_largest\\":"+String(g15aiSettleLargest.load())+",\\"15ai_settle_blocks\\":"+String(g15aiSettleBlocks.load())+",\\"pending\\":"+(pending?"true":"false")+'''
 if '15ai_pre_largest' not in s:
     if s.count(json_anchor)!=1: raise RuntimeError('15AI JSON anchor missing/non-unique')
     s=s.replace(json_anchor,json_new,1)
 
-# Invariants: this diagnostic must not weaken security or touch shared JK/NimBLE.
-if 'TLS_GET_MIN_LARGEST8 = 32768' not in s: raise RuntimeError('15AI TLS threshold changed/missing')
+# Fixed-point verification. 15AI itself was designed around the 32KiB 15AG
+# threshold. 15AM later intentionally lowers that admission gate to 24KiB for
+# the controlled A/B, and 15AN inherits it. Never rewrite a downstream source
+# backwards merely to satisfy this diagnostic script.
+threshold32='static constexpr uint32_t TLS_GET_MIN_LARGEST8 = 32768;'
+threshold24='static constexpr uint32_t TLS_GET_MIN_LARGEST8 = 24576;'
+if version in ('9.36.7.15AM-PREFLIGHT-AB-24K','9.36.7.15AN-TLS-INTERNAL8-FIX'):
+    if s.count(threshold24)!=1 or s.count(threshold32)!=0:
+        raise RuntimeError('15AI downstream threshold invariant failed: expected canonical 24KiB')
+else:
+    if s.count(threshold32)!=1:
+        raise RuntimeError('15AI TLS threshold changed/missing')
+
 if 'client.setCACert(ECOFLOW_CA_BUNDLE);' not in s: raise RuntimeError('15AI CA verification missing')
-# Security scan must inspect executable source, not comments. Keep string literals
-# visible so an actual setInsecure call is still rejected; only C/C++ comments are removed.
 code=re.sub(r'//[^\n]*|/\*.*?\*/','',s,flags=re.S)
 if re.search(r'\bsetInsecure\s*\(',code): raise RuntimeError('15AI insecure TLS forbidden')
 if 'MBEDTLS_SSL_VERIFY_NONE' in code: raise RuntimeError('15AI TLS verify-none forbidden')
 if s.count('tls15aiSnap(g15aiPreFree')!=1: raise RuntimeError('15AI attribution duplicated')
+for key in ('g15aiPreFree=0','15ai_pre_largest','tls15aiSnap(g15aiSettleFree'):
+    if key not in s: raise RuntimeError('15AI fixed-point telemetry missing: '+key)
 
 p.write_text(s,encoding='utf-8')
-print('[15AI-DIAG] RAM attribution around PS BLE reclaim installed; security/runtime gates retained')
+print('[15AI-DIAG] fixed point PASS; lineage=%s; threshold=%s; security/runtime gates retained' % (version,'24KiB' if threshold24 in s else '32KiB'))
