@@ -1,96 +1,50 @@
-name: 15AI RAM Attribution Diagnostic Build
+name: 15AJ X509 Reason Diagnostic
 on:
   push:
-    branches: ["diag/15ai-ram-attribution"]
+    branches: ["diag/15aj-x509-reason"]
   workflow_dispatch:
 
 jobs:
-  full-build:
+  x509-probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Provenance
-        run: |
-          echo "15AI_DIAG_HEAD=$GITHUB_SHA"
-          git diff --quiet
-          git diff --cached --quiet
-          git log -1 --oneline
-      - name: Python syntax gate
-        run: python -m compileall -q tools
-      - name: Install PlatformIO
-        run: pip install platformio
-      - name: Bootstrap pinned packages
-        run: pio pkg install -e lilygo_tcan485
-      - name: Existing audits and host simulations
+      - name: Probe live EcoFlow TLS chain with SNI
         run: |
           set -euo pipefail
-          for f in tools/host_sim_*.py tools/audit_*.py; do
-            echo "===== 15AI DIAG RUN $f ====="
-            python "$f"
+          mkdir -p x509-artifacts
+          echo | openssl s_client -connect api-e.ecoflow.com:443 -servername api-e.ecoflow.com -showcerts 2>&1 | tee x509-artifacts/s_client.txt
+          awk '/-----BEGIN CERTIFICATE-----/{n++} n{print > ("x509-artifacts/cert" n ".pem")} /-----END CERTIFICATE-----/{close("x509-artifacts/cert" n ".pem")}' x509-artifacts/s_client.txt
+          for f in x509-artifacts/cert*.pem; do
+            echo "===== $f =====" | tee -a x509-artifacts/cert-summary.txt
+            openssl x509 -in "$f" -noout -subject -issuer -serial -dates -fingerprint -sha256 -ext subjectAltName | tee -a x509-artifacts/cert-summary.txt
           done
-      - name: Clean build directories without running pre-scripts
-        run: |
-          rm -rf .pio/build .pio/libdeps
-          git reset --hard "$GITHUB_SHA"
-          git diff --quiet
-          git diff --cached --quiet
-      - name: Build USB from pristine source
-        run: |
-          git reset --hard "$GITHUB_SHA"
-          pio run -e lilygo_tcan485
-      - name: Build OTA from pristine source
-        run: |
-          git reset --hard "$GITHUB_SHA"
-          pio run -e lilygo_tcan485_ota
-      - name: Build SPIFFS USB from pristine source
-        run: |
-          git reset --hard "$GITHUB_SHA"
-          pio run -e lilygo_tcan485 -t buildfs
-      - name: Build SPIFFS OTA from pristine source
-        run: |
-          git reset --hard "$GITHUB_SHA"
-          pio run -e lilygo_tcan485_ota -t buildfs
-      - name: Materialize and verify 15AI attribution diagnostic
+      - name: Extract firmware DigiCert G2 trust anchor and verify live chain
         run: |
           set -euo pipefail
-          git reset --hard "$GITHUB_SHA"
-          pio run -e lilygo_tcan485_ota
           python - <<'PY'
           from pathlib import Path
           import re
-          p=Path('src/powerstream_api.cpp').read_text()
-          b=Path('src/powerstream_ble_lab.cpp').read_text()
-          code=re.sub(r'//[^\n]*|/\*.*?\*/','',p+'\n'+b,flags=re.S)
-          assert 'TLS_GET_MIN_LARGEST8 = 32768' in p
-          assert 'powerStreamBleLabReclaimIdleClientForCloud(psBleReleased)' in p
-          assert 'gCloudNotBeforeMs.store(millis()+750U' in p
-          assert 'http_quiet_window_ms' in p
-          assert '15ai_pre_free' in p and '15ai_pre_largest' in p and '15ai_pre_blocks' in p
-          assert '15ai_post_free' in p and '15ai_post_largest' in p and '15ai_post_blocks' in p
-          assert '15ai_tick_free' in p and '15ai_tick_largest' in p and '15ai_tick_blocks' in p
-          assert '15ai_settle_free' in p and '15ai_settle_largest' in p and '15ai_settle_blocks' in p
-          assert 'vTaskDelay(pdMS_TO_TICKS(25))' in p
-          assert b.count('bool powerStreamBleLabReclaimIdleClientForCloud(bool& released)') == 1
-          assert 'NimBLEDevice::deleteClient(sClient)' in b
-          assert 'setCACert(ECOFLOW_CA_BUNDLE)' in p
-          assert not re.search(r'\bsetInsecure\s*\(',code)
-          assert 'MBEDTLS_SSL_VERIFY_NONE' not in code
-          print('15AI RAM ATTRIBUTION TARGET PASS')
+          s=Path('src/powerstream_api.cpp').read_text()
+          m=re.search(r'static const char ECOFLOW_CA_BUNDLE\[\].*?R"EOF\((.*?)\)EOF";',s,re.S)
+          if not m: raise SystemExit('ECOFLOW_CA_BUNDLE not found')
+          Path('x509-artifacts/firmware-ca.pem').write_text(m.group(1).strip()+"\n")
           PY
-      - name: Collect original-name OTA artifacts
-        run: |
-          set -euo pipefail
-          mkdir -p artifacts
-          cp .pio/build/lilygo_tcan485_ota/firmware.bin artifacts/firmware.bin
-          cp .pio/build/lilygo_tcan485_ota/spiffs.bin artifacts/spiffs.bin
-          sha256sum artifacts/firmware.bin artifacts/spiffs.bin | tee artifacts/SHA256SUMS.txt
-          printf '%s\n' "$GITHUB_SHA" > artifacts/COMMIT.txt
+          openssl x509 -in x509-artifacts/firmware-ca.pem -noout -subject -issuer -dates -fingerprint -sha256 | tee x509-artifacts/firmware-ca-summary.txt
+          # cert1 = leaf, cert2.. = server-supplied chain. Build untrusted intermediates only.
+          rm -f x509-artifacts/intermediates.pem
+          for f in x509-artifacts/cert*.pem; do
+            [ "$f" = "x509-artifacts/cert1.pem" ] && continue
+            cat "$f" >> x509-artifacts/intermediates.pem
+          done
+          if [ -s x509-artifacts/intermediates.pem ]; then
+            openssl verify -verbose -show_chain -CAfile x509-artifacts/firmware-ca.pem -untrusted x509-artifacts/intermediates.pem -verify_hostname api-e.ecoflow.com x509-artifacts/cert1.pem | tee x509-artifacts/verify.txt
+          else
+            openssl verify -verbose -show_chain -CAfile x509-artifacts/firmware-ca.pem -verify_hostname api-e.ecoflow.com x509-artifacts/cert1.pem | tee x509-artifacts/verify.txt
+          fi
       - uses: actions/upload-artifact@v4
         with:
-          name: 15AI-ram-attribution-original-files-${{ github.sha }}
-          path: artifacts/
+          name: 15AJ-x509-live-chain-${{ github.sha }}
+          path: x509-artifacts/
           retention-days: 14
