@@ -74,6 +74,7 @@ jobs:
 
       - name: Host regression simulations
         shell: bash
+        timeout-minutes: 8
         run: |
           set -euo pipefail
           mapfile -t sims < <(find . -maxdepth 2 -type f \( -name 'host_sim*.py' -o -name '*regression*.py' -o -name '*audit*.py' \) -not -path './.pio/*' -not -path './.git/*' | sort)
@@ -81,10 +82,24 @@ jobs:
             echo 'No host regression simulation scripts found; gate is informational.'
             exit 0
           fi
-          printf 'Running %s host simulation/regression scripts\n' "${#sims[@]}"
+          printf 'Running %s host simulation/regression scripts with 90s per-script timeout\n' "${#sims[@]}"
           for sim in "${sims[@]}"; do
-            echo "===== $sim ====="
-            python "$sim"
+            echo "===== START $sim ====="
+            start=$(date +%s)
+            set +e
+            timeout --signal=TERM --kill-after=10s 90s python -u "$sim"
+            rc=$?
+            set -e
+            elapsed=$(( $(date +%s) - start ))
+            if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+              echo "[HOST-REGRESSION] TIMEOUT script=$sim elapsed=${elapsed}s rc=$rc"
+              exit 124
+            fi
+            if [ "$rc" -ne 0 ]; then
+              echo "[HOST-REGRESSION] FAIL script=$sim elapsed=${elapsed}s rc=$rc"
+              exit "$rc"
+            fi
+            echo "===== PASS $sim (${elapsed}s) ====="
           done
 
       - name: Clean
