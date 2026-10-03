@@ -35,20 +35,20 @@ if '15ak_first_size' not in s:
     raise RuntimeError('15AN requires 15AK allocation telemetry')
 
 # Fail closed if the TLS-first scheduling fix disappears or is weakened.
+# Match the complete source expression so Python escaping cannot accidentally
+# turn the C++ escaped JSON literal into a different runtime string.
 anchors = [
     'TLS15AN_BLE_FAILSAFE_MS = 120000',
     'if (s15anBleReleased) jkBleProxyTick();',
     'if (s15anBleReleased) powerStreamBleLabTick();',
     'powerStreamApiJobStatusJson()',
-    '\"done\":true',
+    'js.indexOf("\\\"done\\\":true") >= 0',
     'cloudCompleted || failsafe',
 ]
 for a in anchors:
     if a not in m:
         raise RuntimeError('15AN TLS-first scheduling anchor missing: '+a)
 
-# Ordering invariant: the cloud/TLS scheduler must execute before the guarded
-# BLE ticks in the Arduino loop.
 pos_tls = m.find('powerStreamApiLoopTick();')
 pos_jk = m.find('if (s15anBleReleased) jkBleProxyTick();')
 pos_ps = m.find('if (s15anBleReleased) powerStreamBleLabTick();')
