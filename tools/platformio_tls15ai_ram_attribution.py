@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 Import('env')
 from pathlib import Path
+import re
 
 root=Path(env['PROJECT_DIR'])
 p=root/'src'/'powerstream_api.cpp'
@@ -72,7 +73,11 @@ if '15ai_pre_largest' not in s:
 # Invariants: this diagnostic must not weaken security or touch shared JK/NimBLE.
 if 'TLS_GET_MIN_LARGEST8 = 32768' not in s: raise RuntimeError('15AI TLS threshold changed/missing')
 if 'client.setCACert(ECOFLOW_CA_BUNDLE);' not in s: raise RuntimeError('15AI CA verification missing')
-if 'setInsecure(' in s: raise RuntimeError('15AI insecure TLS forbidden')
+# Security scan must inspect executable source, not comments. Keep string literals
+# visible so an actual setInsecure call is still rejected; only C/C++ comments are removed.
+code=re.sub(r'//[^\n]*|/\*.*?\*/','',s,flags=re.S)
+if re.search(r'\bsetInsecure\s*\(',code): raise RuntimeError('15AI insecure TLS forbidden')
+if 'MBEDTLS_SSL_VERIFY_NONE' in code: raise RuntimeError('15AI TLS verify-none forbidden')
 if s.count('tls15aiSnap(g15aiPreFree')!=1: raise RuntimeError('15AI attribution duplicated')
 
 p.write_text(s,encoding='utf-8')
