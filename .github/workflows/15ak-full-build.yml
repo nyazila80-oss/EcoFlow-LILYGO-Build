@@ -36,17 +36,38 @@ jobs:
         run: |
           rm -rf .pio/build .pio/libdeps
           git reset --hard "$GITHUB_SHA"
+          git clean -fd src
           git diff --quiet
           git diff --cached --quiet
-      - name: Build USB
-        run: pio run -e lilygo_tcan485
-      - name: Build OTA
-        run: pio run -e lilygo_tcan485_ota
+      - name: Build USB from pristine source
+        run: |
+          set -euo pipefail
+          git reset --hard "$GITHUB_SHA"
+          git clean -fd src
+          rm -rf .pio/build/lilygo_tcan485
+          pio run -e lilygo_tcan485
+      - name: Restore pristine source after USB pre-scripts
+        run: |
+          git reset --hard "$GITHUB_SHA"
+          git clean -fd src
+          git diff --quiet
+          git diff --cached --quiet
+      - name: Build OTA from pristine source
+        run: |
+          set -euo pipefail
+          rm -rf .pio/build/lilygo_tcan485_ota
+          pio run -e lilygo_tcan485_ota
+      - name: Restore pristine source after OTA pre-scripts
+        run: |
+          git reset --hard "$GITHUB_SHA"
+          git clean -fd src
       - name: Build SPIFFS OTA
         run: pio run -e lilygo_tcan485_ota -t buildfs
       - name: 15AK diagnostic and security gates
         run: |
           set -euo pipefail
+          git reset --hard "$GITHUB_SHA"
+          git clean -fd src
           python - <<'PY'
           from pathlib import Path
           import re
@@ -67,7 +88,13 @@ jobs:
         run: |
           set -euo pipefail
           git reset --hard "$GITHUB_SHA"
+          git clean -fd src
+          rm -rf .pio/build/lilygo_tcan485_ota
           pio run -e lilygo_tcan485_ota
+          # buildfs does not need to re-run source-mutating pre-scripts after firmware;
+          # restore first so the second invocation starts from the canonical source.
+          git reset --hard "$GITHUB_SHA"
+          git clean -fd src
           pio run -e lilygo_tcan485_ota -t buildfs
           mkdir -p artifacts
           cp .pio/build/lilygo_tcan485_ota/firmware.bin artifacts/firmware.bin
