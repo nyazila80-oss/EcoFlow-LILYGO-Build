@@ -60,6 +60,18 @@ jobs:
             python -m py_compile "${pyfiles[@]}"
           fi
 
+      - name: Install pinned framework and libraries for 15AR audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          pio pkg install -e lilygo_tcan485
+
+      - name: 15AR TLS framework capability audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/audit_15ar_tls_framework.py | tee 15AR_TLS_FRAMEWORK_AUDIT.txt
+
       - name: Host regression simulations
         shell: bash
         run: |
@@ -114,6 +126,7 @@ jobs:
             cp ".pio/build/$env/partitions.bin" "artifacts/$env/"
           done
           cp platformio.ini partitions.csv artifacts/
+          cp 15AR_TLS_FRAMEWORK_AUDIT.txt artifacts/
           cat > artifacts/FLASH_USB.txt <<'EOF'
           EcoFlow LILYGO T-CAN485 - complete USB flash package
 
