@@ -15,7 +15,17 @@ jobs:
           set -euo pipefail
           mkdir -p x509-artifacts
           echo | openssl s_client -connect api-e.ecoflow.com:443 -servername api-e.ecoflow.com -showcerts 2>&1 | tee x509-artifacts/s_client.txt
-          awk '/-----BEGIN CERTIFICATE-----/{n++} n{print > ("x509-artifacts/cert" n ".pem")} /-----END CERTIFICATE-----/{close("x509-artifacts/cert" n ".pem")}' x509-artifacts/s_client.txt
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          text=Path('x509-artifacts/s_client.txt').read_text(errors='replace')
+          certs=re.findall(r'-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----',text,re.S)
+          if not certs:
+              raise SystemExit('No PEM certificates found in s_client output')
+          for i,pem in enumerate(certs,1):
+              Path(f'x509-artifacts/cert{i}.pem').write_text(pem+'\n')
+          print(f'extracted_certificates={len(certs)}')
+          PY
           for f in x509-artifacts/cert*.pem; do
             echo "===== $f =====" | tee -a x509-artifacts/cert-summary.txt
             openssl x509 -in "$f" -noout -subject -issuer -serial -dates -fingerprint -sha256 -ext subjectAltName | tee -a x509-artifacts/cert-summary.txt
@@ -31,19 +41,20 @@ jobs:
           if not m: raise SystemExit('ECOFLOW_CA_BUNDLE not found')
           Path('x509-artifacts/firmware-ca.pem').write_text(m.group(1).strip()+"\n")
           PY
-          openssl x509 -in x509-artifacts/firmware-ca.pem -noout -subject -issuer -dates -fingerprint -sha256 | tee x509-artifacts/firmware-ca-summary.txt
-          # cert1 = leaf, cert2.. = server-supplied chain. Build untrusted intermediates only.
+          openssl x509 -in x509-artifacts/firmware-ca.pem -noout -subject -issuer -serial -dates -fingerprint -sha256 | tee x509-artifacts/firmware-ca-summary.txt
           rm -f x509-artifacts/intermediates.pem
-          for f in x509-artifacts/cert*.pem; do
-            [ "$f" = "x509-artifacts/cert1.pem" ] && continue
-            cat "$f" >> x509-artifacts/intermediates.pem
-          done
+          shopt -s nullglob
+          certs=(x509-artifacts/cert*.pem)
+          if [ ${#certs[@]} -lt 1 ]; then echo 'No extracted leaf certificate'; exit 1; fi
+          for f in "${certs[@]:1}"; do cat "$f" >> x509-artifacts/intermediates.pem; done
           if [ -s x509-artifacts/intermediates.pem ]; then
             openssl verify -verbose -show_chain -CAfile x509-artifacts/firmware-ca.pem -untrusted x509-artifacts/intermediates.pem -verify_hostname api-e.ecoflow.com x509-artifacts/cert1.pem | tee x509-artifacts/verify.txt
           else
             openssl verify -verbose -show_chain -CAfile x509-artifacts/firmware-ca.pem -verify_hostname api-e.ecoflow.com x509-artifacts/cert1.pem | tee x509-artifacts/verify.txt
           fi
+          grep -F 'x509-artifacts/cert1.pem: OK' x509-artifacts/verify.txt
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: 15AJ-x509-live-chain-${{ github.sha }}
           path: x509-artifacts/
