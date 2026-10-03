@@ -19,8 +19,10 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
           p=Path('platformio.ini').read_text()
           m=Path('src/main.cpp').read_text()
+          src=Path('src/powerstream_api.cpp').read_text()
           a=Path('tools/platformio_tls15an_internal8_fix.py').read_text()
           order=['platformio_tls15ak_peak_attribution.py','platformio_tls15al_buffer_headroom_fix.py','platformio_tls15am_preflight_ab.py','platformio_tls15an_internal8_fix.py']
           pos=[p.index(x) for x in order]
@@ -30,8 +32,14 @@ jobs:
           assert 'if (s15anBleReleased) powerStreamBleLabTick();' in m
           assert 'powerStreamApiLoopTick();' in m
           assert m.index('powerStreamApiLoopTick();') < m.index('if (s15anBleReleased) jkBleProxyTick();')
-          assert 'setInsecure' not in a.replace('setInsecure present','')
-          assert 'MBEDTLS_SSL_VERIFY_NONE present' in a
+          # Security checks apply to executable firmware source, not diagnostic strings/comments.
+          code=re.sub(r'//[^\n]*|/\*.*?\*/','',src,flags=re.S)
+          assert not re.search(r'\bsetInsecure\s*\(',code)
+          assert 'MBEDTLS_SSL_VERIFY_NONE' not in code
+          assert 'client.setCACert(ECOFLOW_CA_BUNDLE);' in src
+          assert 'client.connect(API_HOST,443)' in src
+          assert '15AN security invariant: setInsecure present' in a
+          assert '15AN security invariant: VERIFY_NONE present' in a
           print('15AN source/security lineage gates PASS')
           PY
       - name: Full clean USB
@@ -46,7 +54,6 @@ jobs:
         run: pio run -e lilygo_tcan485_ota -t buildfs
       - name: Verify transformed 15AN source
         run: |
-          grep -R "9.36.7.15AN-TLS-INTERNAL8-FIX" .pio/build/lilygo_tcan485_ota/src/powerstream_api.cpp.o >/dev/null 2>&1 || true
           grep -q "platformio_tls15an_internal8_fix.py" platformio.ini
           grep -q "platformio_tls15al_buffer_headroom_fix.py" platformio.ini
           grep -q "platformio_tls15am_preflight_ab.py" platformio.ini
