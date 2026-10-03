@@ -8,8 +8,9 @@ p=root/'src'/'powerstream_api.cpp'
 s=p.read_text(encoding='utf-8')
 
 # 15AK diagnostic only: classify the exact failed mbedTLS allocation during the
-# verified client.connect() window. Do not weaken TLS, lower admission gates, or
-# alter JK/NimBLE/WebUI ownership.
+# verified client.connect() window. Do not weaken TLS or alter JK/NimBLE/WebUI
+# ownership. 15AM intentionally changes only the admission threshold 32 -> 24KiB;
+# downstream 15AM/15AN must therefore be verified, never rewritten backwards.
 decl='''
 static std::atomic<uint32_t> g15akFailSeq{0},g15akFirstSize{0},g15akFirstCaps{0};
 static std::atomic<uint32_t> g15akFirstFree{0},g15akFirstLargest{0};
@@ -59,21 +60,34 @@ if 'g15akFirstSize=0' not in s:
     if s.count(reset_anchor)!=1: raise RuntimeError('15AK reset anchor missing/non-unique')
     s=s.replace(reset_anchor,reset_new,1)
 
-# Append fields immediately before the existing message field; values are
-# allocator metadata only and contain no credentials or payload.
 json_anchor=''',\\"message\\":\\""+m+"\\"}";'''
 json_new=''',\\"15ak_fail_seq\\":"+String(g15akFailSeq.load())+",\\"15ak_first_size\\":"+String(g15akFirstSize.load())+",\\"15ak_first_caps\\":"+String(g15akFirstCaps.load())+",\\"15ak_first_free\\":"+String(g15akFirstFree.load())+",\\"15ak_first_largest\\":"+String(g15akFirstLargest.load())+",\\"15ak_last_size\\":"+String(g15akLastSize.load())+",\\"15ak_last_caps\\":"+String(g15akLastCaps.load())+",\\"15ak_last_free\\":"+String(g15akLastFree.load())+",\\"15ak_last_largest\\":"+String(g15akLastLargest.load())+",\\"15ak_min_free\\":"+String(g15akMinFree.load()==0xFFFFFFFFu?0:g15akMinFree.load())+",\\"15ak_min_largest\\":"+String(g15akMinLargest.load()==0xFFFFFFFFu?0:g15akMinLargest.load())+",\\"message\\":\\""+m+"\\"}";'''
 if '15ak_first_size' not in s:
     if s.count(json_anchor)!=1: raise RuntimeError('15AK JSON anchor missing/non-unique')
     s=s.replace(json_anchor,json_new,1)
 
-# Hard safety gates.
-if 'TLS_GET_MIN_LARGEST8 = 32768' not in s: raise RuntimeError('15AK TLS admission threshold changed/missing')
+# Determine the current lineage before enforcing the threshold invariant.
+version_re=re.compile(r'tls15z_version\\\":\\\"([^\\\"]+)')
+versions=version_re.findall(s)
+if len(versions)!=1: raise RuntimeError('15AK provenance missing/non-unique: '+repr(versions))
+version=versions[0]
+thr32='static constexpr uint32_t TLS_GET_MIN_LARGEST8 = 32768;'
+thr24='static constexpr uint32_t TLS_GET_MIN_LARGEST8 = 24576;'
+if version in ('9.36.7.15AM-PREFLIGHT-AB-24K','9.36.7.15AN-TLS-INTERNAL8-FIX'):
+    if s.count(thr24)!=1 or s.count(thr32)!=0:
+        raise RuntimeError('15AK downstream threshold invariant failed: expected canonical 24KiB')
+else:
+    if s.count(thr32)!=1:
+        raise RuntimeError('15AK TLS admission threshold changed/missing: expected canonical 32KiB')
+
+# Hard safety/fixed-point gates.
 if 'client.setCACert(ECOFLOW_CA_BUNDLE);' not in s: raise RuntimeError('15AK CA verification missing')
 code=re.sub(r'//[^\n]*|/\*.*?\*/','',s,flags=re.S)
 if re.search(r'\bsetInsecure\s*\(',code): raise RuntimeError('15AK insecure TLS forbidden')
 if 'MBEDTLS_SSL_VERIFY_NONE' in code: raise RuntimeError('15AK TLS verify-none forbidden')
 if s.count('client.connect(API_HOST,443)')!=1: raise RuntimeError('15AK connect cardinality changed')
+for key in ('g15akFailSeq.store(seq','g15akFirstSize=0','15ak_first_size'):
+    if key not in s: raise RuntimeError('15AK fixed-point telemetry missing: '+key)
 
 p.write_text(s,encoding='utf-8')
-print('[15AK-DIAG] exact TLS failed-allocation peak attribution installed; security gates retained')
+print('[15AK-DIAG] fixed point PASS; lineage=%s; threshold=%s; exact allocation telemetry/security gates retained' % (version,'24KiB' if thr24 in s else '32KiB'))
