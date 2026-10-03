@@ -36,28 +36,78 @@ jobs:
           check('BLE_FAILSAFE','TLS15AN_BLE_FAILSAFE_MS = 120000' in m)
           check('JK_BLE_GATED','if (s15anBleReleased) jkBleProxyTick();' in m)
           check('PS_BLE_GATED','if (s15anBleReleased) powerStreamBleLabTick();' in m)
-          tls='powerStreamApiLoopTick();'
-          jk='if (s15anBleReleased) jkBleProxyTick();'
-          ps='if (s15anBleReleased) powerStreamBleLabTick();'
+          tls='powerStreamApiLoopTick();'; jk='if (s15anBleReleased) jkBleProxyTick();'; ps='if (s15anBleReleased) powerStreamBleLabTick();'
           check('TLS_TICK_PRESENT',tls in m)
-          if all(x in m for x in (tls,jk,ps)):
-              check('TLS_BEFORE_BLE',m.index(tls)<m.index(jk) and m.index(tls)<m.index(ps),f'tls={m.index(tls)} jk={m.index(jk)} ps={m.index(ps)}')
-          else:
-              check('TLS_BEFORE_BLE',False,'one or more anchors missing')
+          check('TLS_BEFORE_BLE',all(x in m for x in (tls,jk,ps)) and m.index(tls)<m.index(jk) and m.index(tls)<m.index(ps))
           check('CLOUD_STATUS_JSON','powerStreamApiJobStatusJson()' in m)
           check('CLOUD_DONE_PARSE','js.indexOf("\\\"done\\\":true") >= 0' in m)
           check('CLOUD_RELEASE','cloudCompleted || failsafe' in m)
           failed=[x for x in checks if not x[1]]
           print(f'[15AN-GATE] summary: {len(checks)-len(failed)}/{len(checks)} PASS')
-          if failed:
-              print('[15AN-GATE] failed names: '+', '.join(x[0] for x in failed))
-              sys.exit(1)
+          if failed: sys.exit(1)
           PY
 
       - name: Full clean USB
         run: pio run -e lilygo_tcan485 -t clean
       - name: Build USB
         run: pio run -e lilygo_tcan485
+
+      - name: 15AP mbedTLS framework configuration proof
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re, subprocess, sys
+          home=Path.home()/'.platformio'
+          candidates=[]
+          for p in home.rglob('mbedtls/config.h'):
+              candidates.append(p)
+          for p in home.rglob('mbedtls_config.h'):
+              candidates.append(p)
+          # Deduplicate resolved paths.
+          uniq=[]; seen=set()
+          for p in candidates:
+              q=str(p.resolve())
+              if q not in seen: seen.add(q); uniq.append(p)
+          print('[15AP] mbedTLS config candidates:')
+          for p in uniq: print('  '+str(p))
+          macros=['CONFIG_MBEDTLS_DYNAMIC_BUFFER','CONFIG_MBEDTLS_DYNAMIC_FREE_PEER_CERT','CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA','CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT']
+          found={m:[] for m in macros}
+          for p in uniq:
+              try: txt=p.read_text(errors='ignore')
+              except Exception: continue
+              for m in macros:
+                  for line in txt.splitlines():
+                      if m in line: found[m].append((str(p),line.strip()))
+          for m in macros:
+              print(f'[15AP] {m}: '+(repr(found[m]) if found[m] else 'NOT PRESENT IN FRAMEWORK CONFIG HEADERS'))
+
+          # Inspect precompiled framework archives and build map/symbol context.
+          archives=[]
+          for p in home.rglob('*.a'):
+              low=str(p).lower()
+              if 'mbedtls' in low or 'arduino' in low or 'framework' in low:
+                  archives.append(p)
+          print(f'[15AP] candidate archives={len(archives)}')
+          for p in archives[:80]: print('  archive '+str(p))
+
+          # Critical distinction: project CPPDEFINES are visible to app TUs, but
+          # only framework config/header evidence can prove how precompiled mbedTLS
+          # was built. Do not fail merely because the app defines exist.
+          ini=Path('platformio.ini').read_text()
+          al=Path('tools/platformio_tls15al_buffer_headroom_fix.py').read_text()
+          print('[15AP] 15AL injects app CPPDEFINES=', all(m in al for m in macros))
+          print('[15AP] framework=arduino=', 'framework = arduino' in ini)
+
+          # Save deterministic evidence into the Actions log; classify, don't guess.
+          framework_hits=sum(bool(found[m]) for m in macros)
+          if framework_hits==0:
+              print('[15AP-VERDICT] NO_FRAMEWORK_CONFIG_EVIDENCE: 15AL CPPDEFINES do not prove precompiled mbedTLS dynamic-buffer support')
+          elif framework_hits==len(macros):
+              print('[15AP-VERDICT] FRAMEWORK_HEADERS_DECLARE_ALL_DYNAMIC_OPTIONS: inspect values/archives before claiming active binary support')
+          else:
+              print(f'[15AP-VERDICT] PARTIAL_FRAMEWORK_CONFIG_EVIDENCE: {framework_hits}/{len(macros)} macros found')
+          PY
+
       - name: Full clean OTA
         run: pio run -e lilygo_tcan485_ota -t clean
       - name: Build OTA
@@ -70,17 +120,14 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import re,sys
-          src=Path('src/powerstream_api.cpp').read_text()
-          ini=Path('platformio.ini').read_text()
-          checks=[]
+          src=Path('src/powerstream_api.cpp').read_text(); ini=Path('platformio.ini').read_text(); checks=[]
           def check(name, ok, detail=''):
-              checks.append((name,bool(ok),detail))
-              print(f"[15AN-AUDIT] {name}: {'PASS' if ok else 'FAIL'} {detail}")
+              checks.append((name,bool(ok),detail)); print(f"[15AN-AUDIT] {name}: {'PASS' if ok else 'FAIL'} {detail}")
           code=re.sub(r'//[^\n]*|/\*.*?\*/','',src,flags=re.S)
           check('NO_SET_INSECURE',not bool(re.search(r'\bsetInsecure\s*\(',code)))
           check('NO_VERIFY_NONE','MBEDTLS_SSL_VERIFY_NONE' not in code)
-          check('CA_CERT',src.count('client.setCACert(ECOFLOW_CA_BUNDLE);')==1,f"count={src.count('client.setCACert(ECOFLOW_CA_BUNDLE);')}")
-          check('VERIFIED_CONNECT',src.count('client.connect(API_HOST,443)')==1,f"count={src.count('client.connect(API_HOST,443)')}")
+          check('CA_CERT',src.count('client.setCACert(ECOFLOW_CA_BUNDLE);')==1)
+          check('VERIFIED_CONNECT',src.count('client.connect(API_HOST,443)')==1)
           check('15AN_VERSION','9.36.7.15AN-TLS-INTERNAL8-FIX' in src)
           check('24K_PREFLIGHT','TLS_GET_MIN_LARGEST8 = 24576' in src)
           check('15AK_TELEMETRY','15ak_first_size' in src)
@@ -89,9 +136,7 @@ jobs:
           check('15AN_SCRIPT','platformio_tls15an_internal8_fix.py' in ini)
           failed=[x for x in checks if not x[1]]
           print(f'[15AN-AUDIT] summary: {len(checks)-len(failed)}/{len(checks)} PASS')
-          if failed:
-              print('[15AN-AUDIT] failed names: '+', '.join(x[0] for x in failed))
-              sys.exit(1)
+          if failed: sys.exit(1)
           PY
 
       - name: Pristine OTA rebuild
