@@ -76,17 +76,30 @@ json_new=json_anchor+'\\"tls15z_stop_generation_before\\":"+String(gTls15zStopGe
 if json_anchor in p and json_new not in p: p=p.replace(json_anchor,json_new,1)
 elif json_new not in p: raise RuntimeError('15Z AB7 JSON provenance anchor missing')
 
-# IMPORTANT: on a pristine source tree the AB6 pre-script has already injected
-# tls15z_version during this same SCons process, but the source may also carry a
-# later diagnostic version elsewhere. Validate the tls15z_version VALUE itself,
-# rather than searching the whole translation unit for unrelated later tags.
+# Validate exactly one canonical tls15z_version value. AB7 may run on a source
+# that already contains a later, security-preserving descendant in the same
+# 15Z->15AN diagnostic lineage. Only AB6 is promoted by this script; later
+# versions are accepted as already downstream and are never rewritten backwards.
 version_re=re.compile(r'tls15z_version\\\":\\\"([^\\\"]+)')
 vm=version_re.findall(p)
 if len(vm)!=1: raise RuntimeError('15Z AB7 provenance invariant: tls15z_version missing/non-unique: '+repr(vm))
 if vm[0]=='9.36.7.15Z-MEMORY-RELIEF-AB6':
     p=p.replace('tls15z_version\\\":\\\"9.36.7.15Z-MEMORY-RELIEF-AB6','tls15z_version\\\":\\\"9.36.7.15Z-MEMORY-RELIEF-AB7',1)
-elif vm[0] not in ('9.36.7.15Z-MEMORY-RELIEF-AB7','9.36.7.15Z-MEMORY-RELIEF-AB8','9.36.7.15AF-NO-AUX-RESERVATION','9.36.7.15AG-TLS-PEAK-FIX'):
-    raise RuntimeError('15Z AB7 provenance invariant: unexpected tls15z_version '+vm[0])
+else:
+    allowed_exact={
+        '9.36.7.15Z-MEMORY-RELIEF-AB7',
+        '9.36.7.15Z-MEMORY-RELIEF-AB8',
+        '9.36.7.15AF-NO-AUX-RESERVATION',
+        '9.36.7.15AG-TLS-PEAK-FIX',
+        '9.36.7.15AH-EARLY-TLS-HANDSHAKE',
+        '9.36.7.15AI-PS-BLE-RECLAIM-DIAG',
+        '9.36.7.15AK-TLS-ALLOC-PEAK-DIAG',
+        '9.36.7.15AL-TLS-DYNAMIC-BUFFER-FIX',
+        '9.36.7.15AM-PREFLIGHT-AB-24K',
+        '9.36.7.15AN-TLS-INTERNAL8-FIX',
+    }
+    if vm[0] not in allowed_exact:
+        raise RuntimeError('15Z AB7 provenance invariant: unexpected tls15z_version '+vm[0])
 
 def strip_cpp_comments(text): return re.sub(r'//[^\n]*|/\*.*?\*/','',text,flags=re.S)
 code=strip_cpp_comments(p+'\n'+j)
